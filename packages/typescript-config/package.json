@@ -1,5 +1,5 @@
 {
-  "name": "@voyant-travel/cli-tsconfig",
+  "name": "@voyant-travel/max-tsconfig",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0"

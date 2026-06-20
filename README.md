@@ -1,9 +1,8 @@
 # Max
 
-The public, consumer-facing toolkit for **Max** — Voyant's AI travel agent — plus
-the **Voyant CLI**. Everything you need to embed Max, extend it with your own
-tools, and drive the Voyant platform from your terminal, versioned and published
-to npm under the `@voyant-travel` scope.
+The public, consumer-facing toolkit for **Max** — Voyant's AI travel agent.
+Everything you need to embed Max into your app and extend it with your own tools,
+versioned and published to npm under the `@voyant-travel` scope.
 
 ## Packages
 
@@ -11,7 +10,6 @@ to npm under the `@voyant-travel` scope.
 | --- | --- | --- |
 | [**@voyant-travel/max-embed**](./packages/embed) | `npm i @voyant-travel/max-embed` | Drop Max into any web app — React `<MaxLauncher>` / `<MaxChat>`, or a plain `<script>` loader. |
 | [**@voyant-travel/max-sdk**](./packages/sdk) | `npm i @voyant-travel/max-sdk` | Write custom tools for Max: define them with Zod, serve them over HTTP, register the manifest. Includes the optional generative-UI card types. |
-| [**@voyant-travel/cli**](./packages/cli) | `npm i -g @voyant-travel/cli` | Unified CLI for the Voyant open-source framework and Voyant Cloud. |
 
 ## Embed Max
 
@@ -54,18 +52,6 @@ const manifest = toManifest([lookupBooking], { callBaseUrl: "https://acme.exampl
 Max validates each call against your Zod schema, confirms `destructive` actions
 with the user, and renders results — optionally as rich cards. See the
 [package README](./packages/sdk).
-
-## Voyant CLI
-
-```sh
-npm i -g @voyant-travel/cli
-voyant --help
-```
-
-Scaffolding, codegen, database tooling and a TS runner for the open-source
-framework (no login), plus a full Voyant Cloud control plane (apps, env, deploy,
-logs, secrets) once you `voyant login`. Full docs in the
-[package README](./packages/cli).
 
 ## Develop
 

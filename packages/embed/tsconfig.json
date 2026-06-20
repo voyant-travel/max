@@ -1,5 +1,5 @@
 {
-  "extends": "@voyant-travel/cli-tsconfig/base.json",
+  "extends": "@voyant-travel/max-tsconfig/base.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",

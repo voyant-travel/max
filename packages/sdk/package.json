@@ -23,7 +23,7 @@
     "zod": "4.3.6"
   },
   "devDependencies": {
-    "@voyant-travel/cli-tsconfig": "workspace:*",
+    "@voyant-travel/max-tsconfig": "workspace:*",
     "typescript": "5.9.2",
     "vitest": "^4.1.8"
   },

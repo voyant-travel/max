@@ -1,24 +1,25 @@
 # Contributing
 
-This repo publishes the unified `@voyant-travel/cli` binary.
+This repo publishes Max's consumer-facing packages: `@voyant-travel/max-embed`
+and `@voyant-travel/max-sdk`.
 
 ## Scope
 
-- OSS commands that scaffold and run Voyant projects without authentication
-- Cloud commands that talk to Voyant Cloud over HTTP via `@voyant-travel/cloud-sdk`
-- Shared CLI infrastructure (arg parsing, credentials, config loading,
-  template fetching)
+- **Embedding Max** — the React components and the `<script>` loader that mount
+  the Voyant-hosted chat iframe and keep it in sync with the host page.
+- **Extending Max** — the SDK for authoring custom tools (define with Zod, serve
+  over HTTP, register the manifest) and the generative-UI card contract.
 
-Out of scope: server-side code (lives in `voyant-cloud`), framework runtime
-(lives in `voyant-travel/voyant`).
+Out of scope: the agent runtime and server-side code (lives in `voyant-cloud`),
+the framework runtime (lives in `voyant-travel/voyant`), and the Voyant CLI
+(lives in its own repo).
 
 ## Working rules
 
-- Keep commands thin — push reusable logic into `lib/` so the same code is
-  callable both from the CLI and programmatically
-- Cloud commands must work without the `voyant` framework being installed
-- OSS commands must work without a Voyant Cloud login
-- Credentials never get logged
+- Keep the public API small and well-typed; everything published is a stable
+  contract.
+- The embed packages stay dependency-light and framework-agnostic where possible.
+- The SDK must run anywhere the Web `fetch` API does (Workers, Node, Deno, Bun).
 
 ## Before opening a PR
 
@@ -26,6 +27,7 @@ Out of scope: server-side code (lives in `voyant-cloud`), framework runtime
 pnpm check-types
 pnpm test
 pnpm build
+pnpm lint
 ```
 
 ## Releases
