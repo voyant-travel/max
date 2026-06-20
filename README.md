@@ -10,8 +10,7 @@ to npm under the `@voyant-travel` scope.
 | Package | Install | What it's for |
 | --- | --- | --- |
 | [**@voyant-travel/max-embed**](./packages/embed) | `npm i @voyant-travel/max-embed` | Drop Max into any web app — React `<MaxLauncher>` / `<MaxChat>`, or a plain `<script>` loader. |
-| [**@voyant-travel/max-sdk**](./packages/sdk) | `npm i @voyant-travel/max-sdk` | Write custom tools for Max: define them with Zod, serve them over HTTP, register the manifest. |
-| [**@voyant-travel/max-cards**](./packages/cards) | `npm i @voyant-travel/max-cards` | The Zod contract for Max's generative-UI cards (the rich widgets tool results render). |
+| [**@voyant-travel/max-sdk**](./packages/sdk) | `npm i @voyant-travel/max-sdk` | Write custom tools for Max: define them with Zod, serve them over HTTP, register the manifest. Includes the optional generative-UI card types. |
 | [**@voyant-travel/cli**](./packages/cli) | `npm i -g @voyant-travel/cli` | Unified CLI for the Voyant open-source framework and Voyant Cloud. |
 
 ## Embed Max

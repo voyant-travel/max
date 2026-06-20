@@ -1,5 +1,6 @@
-import type { AgentCard } from "@voyant-travel/max-cards"
 import type { z } from "zod"
+
+import type { AgentCard } from "./cards.js"
 
 /**
  * How risky a tool is. Voyant uses this to decide whether a call runs

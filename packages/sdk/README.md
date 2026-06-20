@@ -10,8 +10,8 @@ a quote, trigger a workflow — as part of a conversation. You:
 3. **Register** the generated manifest with Voyant.
 
 Max validates each call against your schema, asks for confirmation on
-`destructive` tools, and renders results — optionally as rich
-[cards](https://www.npmjs.com/package/@voyant-travel/max-cards).
+`destructive` tools, and renders results — optionally as rich **cards**
+(typed in this package; see below).
 
 ## Install
 
@@ -77,8 +77,9 @@ const manifest = toManifest([lookupBooking], {
 
 ## Rich results (cards)
 
-Return a `card` alongside your data to render a widget in the chat — re-exported
-from `@voyant-travel/max-cards`:
+Cards are **optional** — return plain JSON and Max renders it. When you want to
+control the widget, return a `card` alongside your data. The card types ship with
+this package:
 
 ```ts
 import { defineTool, type WithCard } from "@voyant-travel/max-sdk"

@@ -21,22 +21,6 @@ importers:
         specifier: 5.9.2
         version: 5.9.2
 
-  packages/cards:
-    dependencies:
-      zod:
-        specifier: 4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@voyant-travel/cli-tsconfig':
-        specifier: workspace:*
-        version: link:../typescript-config
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-      vitest:
-        specifier: ^4.1.8
-        version: 4.1.9(@types/node@22.19.17)(vite@8.0.10(@types/node@22.19.17)(esbuild@0.28.0))
-
   packages/cli:
     dependencies:
       '@voyant-travel/cloud-sdk':
@@ -100,9 +84,6 @@ importers:
 
   packages/sdk:
     dependencies:
-      '@voyant-travel/max-cards':
-        specifier: workspace:^
-        version: link:../cards
       zod:
         specifier: 4.3.6
         version: 4.3.6

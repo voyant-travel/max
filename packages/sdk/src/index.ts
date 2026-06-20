@@ -1,12 +1,12 @@
-// Re-export the generative-UI card contract so tools can attach rich widgets
-// to their results without a second dependency.
+// The generative-UI card contract — optional. Tools can attach a `card` to
+// their result to render a rich widget instead of plain JSON.
 export {
   type AgentCard,
   type AgentCardKind,
   type Block,
   extractCard,
   parseCard,
-} from "@voyant-travel/max-cards"
+} from "./cards.js"
 export { defineTool, file } from "./define-tool.js"
 export { type CreateHandlerOptions, createMaxToolsHandler } from "./handler.js"
 export { type ManifestOptions, toManifest, toToolDefinition } from "./manifest.js"
