@@ -4,8 +4,14 @@
   "license": "Apache-2.0",
   "description": "Write custom tools for Max, Voyant's AI travel agent. Define tools with Zod, generate the manifest Voyant registers, and serve calls with a framework-agnostic request handler.",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
@@ -31,17 +37,7 @@
     "node": ">=20"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "main": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/index.js",
-        "default": "./dist/index.js"
-      }
-    }
+    "access": "public"
   },
   "repository": {
     "type": "git",

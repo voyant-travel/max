@@ -4,8 +4,14 @@
   "license": "Apache-2.0",
   "description": "Embed Max — Voyant's AI travel agent — into any web app. React components (a floating launcher and an inline chat) plus a framework-agnostic <script> loader.",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
     "./max.js": "./loader/max.js"
   },
   "files": [
@@ -38,18 +44,7 @@
     "node": ">=20"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "main": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/index.js",
-        "default": "./dist/index.js"
-      },
-      "./max.js": "./loader/max.js"
-    }
+    "access": "public"
   },
   "repository": {
     "type": "git",
