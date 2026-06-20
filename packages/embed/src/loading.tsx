@@ -40,15 +40,22 @@ export function LoadingOverlay({ show, dark }: { show: boolean; dark: boolean })
           transition: "opacity 240ms ease",
         }}
       >
-        <Spinner dark={dark} />
+        <MaxSpinner dark={dark} />
       </div>
     </>
   )
 }
 
-/** Spinning ring around the twinkling Max sparkle. */
-function Spinner({ dark }: { dark: boolean }) {
-  const track = dark ? "rgba(255,255,255,0.12)" : "rgba(15,16,13,0.1)"
+/**
+ * The branded Max loading spinner — a spinning ring around the twinkling Max
+ * sparkle. Exported so a host shell can show the *same* loader during its own
+ * pre-chat work (e.g. minting an embed token) and keep the loading state
+ * consistent with `MaxChat` / `MaxLauncher`. `dark` auto-resolves from the host
+ * when omitted.
+ */
+export function MaxSpinner({ dark }: { dark?: boolean } = {}) {
+  const isDark = dark ?? resolveDark({})
+  const track = isDark ? "rgba(255,255,255,0.12)" : "rgba(15,16,13,0.1)"
   return (
     <div
       style={{

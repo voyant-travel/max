@@ -1,5 +1,11 @@
 # @voyant-travel/max-embed
 
+## 0.3.0
+
+### Minor Changes
+
+- Export `MaxSpinner` — the branded Max loading spinner used by `MaxChat` / `MaxLauncher`. Host shells can render the same spinner during their own pre-chat work (e.g. minting an embed token) so the loading state stays consistent instead of showing a different loader. Also exports the `MaxTheme` type.
+
 ## 0.2.0
 
 ### Minor Changes

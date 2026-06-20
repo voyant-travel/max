@@ -1,6 +1,6 @@
 {
   "name": "@voyant-travel/max-embed",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "description": "Embed Max — Voyant's AI travel agent — into any web app. React components (a floating launcher and an inline chat) plus a framework-agnostic <script> loader.",
   "type": "module",
