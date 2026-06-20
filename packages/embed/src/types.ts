@@ -27,10 +27,12 @@ export type MaxChatProps = {
    * server side, not by this prop — this only controls UI chrome.
    */
   lang?: string
-  /** Extra class names for the wrapping iframe. */
+  /** Extra class names for the wrapping element. */
   className?: string
-  /** Inline styles for the wrapping iframe. */
+  /** Inline styles for the wrapping element. */
   style?: React.CSSProperties
+  /** Called once the chat iframe has loaded. */
+  onLoad?: () => void
 }
 
 export type MaxLauncherProps = MaxChatProps & {
