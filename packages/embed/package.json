@@ -1,0 +1,59 @@
+{
+  "name": "@voyant-travel/max-embed",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Embed Max — Voyant's AI travel agent — into any web app. React components (a floating launcher and an inline chat) plus a framework-agnostic <script> loader.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./max.js": "./loader/max.js"
+  },
+  "files": [
+    "dist",
+    "loader"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check src",
+    "format": "biome check --write src",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist",
+    "prepack": "pnpm run build"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@voyant-travel/cli-tsconfig": "workspace:*",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./max.js": "./loader/max.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/voyant-travel/max.git",
+    "directory": "packages/embed"
+  }
+}

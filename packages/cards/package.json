@@ -1,0 +1,51 @@
+{
+  "name": "@voyant-travel/max-cards",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Zod contract for Max's generative-UI cards — the rich widgets a tool result can render in the Max chat (bookings, products, itineraries, weather, maps, and a dynamic block composer).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check src",
+    "format": "biome check --write src",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist",
+    "prepack": "pnpm run build"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@voyant-travel/cli-tsconfig": "workspace:*",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/voyant-travel/max.git",
+    "directory": "packages/cards"
+  }
+}
