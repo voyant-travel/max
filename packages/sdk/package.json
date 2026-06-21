@@ -1,6 +1,6 @@
 {
   "name": "@voyant-travel/max-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "description": "Write custom tools for Max, Voyant's AI travel agent. Define tools with Zod, generate the manifest Voyant registers, and serve calls with a framework-agnostic request handler.",
   "type": "module",
