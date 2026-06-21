@@ -191,6 +191,8 @@ const HotelRoom = z.object({
   provider: z.string().max(80).optional(),
   priceDisplay: z.string().max(80).optional(),
   capacity: z.string().max(80).optional(),
+  /** Deep link to book this room/rate (opens in a new tab). */
+  bookUrl: z.string().max(2000).optional(),
 })
 
 const HotelCard = z.object({
