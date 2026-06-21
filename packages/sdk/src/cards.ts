@@ -165,6 +165,50 @@ const ProductListCard = z.object({
   items: z.array(ProductListItem).max(50),
 })
 
+// Hotels — search results (`hotelList`) + a single hotel detail (`hotel`).
+const HotelListItem = z.object({
+  name: z.string().min(1).max(240),
+  imageUrl: z.string().max(2000).optional(),
+  /** Hotel class, 0–5. */
+  stars: z.number().min(0).max(5).optional(),
+  /** Guest review score, 0–5. */
+  rating: z.number().min(0).max(5).optional(),
+  ratingCount: z.number().int().nonnegative().optional(),
+  priceDisplay: z.string().max(80).optional(),
+  location: z.string().max(200).optional(),
+})
+
+const HotelListCard = z.object({
+  kind: z.literal("hotelList"),
+  title: z.string().max(160).optional(),
+  total: z.number().int().nonnegative().optional(),
+  items: z.array(HotelListItem).max(50),
+})
+
+const HotelRoom = z.object({
+  /** Room or rate name (e.g. "Standard King Room"). */
+  type: z.string().min(1).max(160),
+  provider: z.string().max(80).optional(),
+  priceDisplay: z.string().max(80).optional(),
+  capacity: z.string().max(80).optional(),
+})
+
+const HotelCard = z.object({
+  kind: z.literal("hotel"),
+  name: z.string().min(1).max(240),
+  stars: z.number().min(0).max(5).optional(),
+  rating: z.number().min(0).max(5).optional(),
+  ratingCount: z.number().int().nonnegative().optional(),
+  location: z.string().max(200).optional(),
+  priceDisplay: z.string().max(80).optional(),
+  /** Gallery for the image carousel. */
+  images: z.array(z.string().min(1).max(2000)).max(24).optional(),
+  description: z.string().max(1200).optional(),
+  amenities: z.array(z.string().min(1).max(80)).max(16).optional(),
+  rooms: z.array(HotelRoom).max(12).optional(),
+  actions: z.array(CardActionSchema).max(4).optional(),
+})
+
 const ItineraryDay = z.object({
   number: z.number().int().min(0).max(366).optional(),
   title: z.string().min(1).max(240),
@@ -485,6 +529,8 @@ export const AgentCardSchema = z.discriminatedUnion("kind", [
   PeopleListCard,
   ProductCard,
   ProductListCard,
+  HotelListCard,
+  HotelCard,
   ItineraryCard,
   OfferCard,
   DepartureListCard,
