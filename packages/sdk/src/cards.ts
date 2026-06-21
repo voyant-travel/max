@@ -198,10 +198,15 @@ const HotelRoom = z.object({
 const HotelCard = z.object({
   kind: z.literal("hotel"),
   name: z.string().min(1).max(240),
+  /** Hotel class, 0–5 (a "4-star hotel" — distinct from the review rating). */
   stars: z.number().min(0).max(5).optional(),
   rating: z.number().min(0).max(5).optional(),
   ratingCount: z.number().int().nonnegative().optional(),
+  /** Neighborhood / short locality. */
   location: z.string().max(200).optional(),
+  /** Full street address. */
+  address: z.string().max(300).optional(),
+  phone: z.string().max(60).optional(),
   priceDisplay: z.string().max(80).optional(),
   /** Gallery for the image carousel. */
   images: z.array(z.string().min(1).max(2000)).max(24).optional(),
