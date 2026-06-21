@@ -1,5 +1,12 @@
 # @voyant-travel/max-sdk
 
+## 0.2.1
+
+### Patch Changes
+
+- 98bbfcf: Add `bookUrl` to the hotel card's room/rate option, mirroring the platform
+  agent-cards contract (a deep link to book that room).
+
 ## 0.2.0
 
 ### Minor Changes
