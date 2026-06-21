@@ -216,6 +216,29 @@ const HotelCard = z.object({
   actions: z.array(CardActionSchema).max(4).optional(),
 })
 
+// Restaurants — Google Maps search results.
+const RestaurantListItem = z.object({
+  name: z.string().min(1).max(240),
+  imageUrl: z.string().max(2000).optional(),
+  /** Guest review score, 0–5. */
+  rating: z.number().min(0).max(5).optional(),
+  ratingCount: z.number().int().nonnegative().optional(),
+  /** Price tier, 1–4 ("$"–"$$$$"). */
+  priceLevel: z.number().int().min(1).max(4).optional(),
+  cuisine: z.string().max(80).optional(),
+  address: z.string().max(200).optional(),
+  openNow: z.boolean().optional(),
+  /** Reserve-a-table deep link (opens in a new tab). */
+  bookUrl: z.string().max(2000).optional(),
+})
+
+const RestaurantListCard = z.object({
+  kind: z.literal("restaurantList"),
+  title: z.string().max(160).optional(),
+  total: z.number().int().nonnegative().optional(),
+  items: z.array(RestaurantListItem).max(50),
+})
+
 const ItineraryDay = z.object({
   number: z.number().int().min(0).max(366).optional(),
   title: z.string().min(1).max(240),
@@ -538,6 +561,7 @@ export const AgentCardSchema = z.discriminatedUnion("kind", [
   ProductListCard,
   HotelListCard,
   HotelCard,
+  RestaurantListCard,
   ItineraryCard,
   OfferCard,
   DepartureListCard,
