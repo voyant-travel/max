@@ -1,5 +1,12 @@
 # @voyant-travel/max-sdk
 
+## 0.2.2
+
+### Patch Changes
+
+- ec220fd: Add `address` and `phone` to the hotel card (full street address + contact),
+  mirroring the platform agent-cards contract.
+
 ## 0.2.1
 
 ### Patch Changes
