@@ -1,5 +1,13 @@
 # @voyant-travel/max-sdk
 
+## 0.3.0
+
+### Minor Changes
+
+- 9043746: Add the `restaurantList` card kind (restaurant search results: photo, rating,
+  cuisine, price, open status, reserve link), mirroring the platform agent-cards
+  contract.
+
 ## 0.2.2
 
 ### Patch Changes
