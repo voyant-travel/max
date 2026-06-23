@@ -43,3 +43,23 @@ export type MaxLauncherProps = MaxChatProps & {
   /** Right offset for the floating launcher in px. Defaults to 20. */
   right?: number
 }
+
+export type MaxAppProps = MaxChatProps & {
+  /**
+   * Embedder path under which the Max app is mounted, e.g. `/assistant`. The
+   * in-iframe location (`/c/<id>`, …) is reflected into the embedder's address
+   * bar as `basePath + path`, so deep-links, refresh, share and the browser
+   * back/forward buttons all work. Defaults to `/` (Max owns the whole path).
+   *
+   * The embedder must route every path under `basePath` to the page that
+   * renders `<MaxApp>` (a catch-all / splat route) so a refreshed deep-link
+   * still mounts the component.
+   */
+  basePath?: string
+  /**
+   * Called whenever the in-iframe location changes, with the app-relative path
+   * (`/`, `/c/<id>`, …). Use it to sync framework router state if you don't
+   * rely on the pushState the component performs itself.
+   */
+  onRouteChange?: (path: string) => void
+}
