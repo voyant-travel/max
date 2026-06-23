@@ -30,6 +30,11 @@ export function MaxLauncher({
 }: MaxLauncherProps) {
   const [open, setOpen] = useState(defaultOpen)
   const [mounted, setMounted] = useState(defaultOpen)
+  // Latched full-screen state. The embedded app requests it (`max:setLayout`)
+  // when a turn enters a canvas workflow — the panel grows to a near-fullscreen
+  // overlay and stays there until the user collapses or closes it. Never
+  // auto-reverts, so the operator isn't yanked back mid-task.
+  const [expanded, setExpanded] = useState(false)
   // `visible` keeps the panel in the DOM through the close animation; `entered`
   // is the on-screen state we animate to/from. Splitting them lets both the
   // open and close transitions play (toggling `display` in one render would
@@ -70,13 +75,27 @@ export function MaxLauncher({
 
   useHostSync({ iframeRef, origin, theme, lang })
 
-  // The in-iframe "Close" button posts `max:close`; honour it from the embed
-  // origin only so an unrelated page can't toggle the launcher.
+  // In-iframe messages: "Close" posts `max:close`; a canvas workflow posts
+  // `max:setLayout`. Honoured from the embed origin only so an unrelated page
+  // can't drive the launcher.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== origin) return
-      const data = event.data as { type?: string } | null
-      if (data?.type === "max:close") setOpen(false)
+      const data = event.data as { type?: string; layout?: string } | null
+      if (!data) return
+      if (data.type === "max:close") {
+        setOpen(false)
+        setExpanded(false)
+      } else if (data.type === "max:setLayout") {
+        if (data.layout === "expanded") {
+          // A canvas workflow needs room — make sure we're open and grow.
+          setMounted(true)
+          setOpen(true)
+          setExpanded(true)
+        } else if (data.layout === "normal") {
+          setExpanded(false)
+        }
+      }
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
@@ -105,23 +124,29 @@ export function MaxLauncher({
       <div
         style={{
           position: "fixed",
-          right,
-          bottom: bottom + 68,
-          width: BUBBLE_W,
+          // Expanded: a centred near-fullscreen overlay (capped ~1280px on wide
+          // screens, 16px margins otherwise). Normal: the bottom-right panel.
+          right: expanded ? "max(16px, calc(50vw - 640px))" : right,
+          left: expanded ? "max(16px, calc(50vw - 640px))" : undefined,
+          top: expanded ? 16 : undefined,
+          bottom: expanded ? 16 : bottom + 68,
+          width: expanded ? "auto" : BUBBLE_W,
           // Near full-height panel (16px top margin) to match the taller design.
-          height: `calc(100vh - ${bottom + 84}px)`,
-          maxWidth: `calc(100vw - ${right * 2}px)`,
-          borderRadius: 20,
+          height: expanded ? "auto" : `calc(100vh - ${bottom + 84}px)`,
+          maxWidth: expanded ? "none" : `calc(100vw - ${right * 2}px)`,
+          borderRadius: expanded ? 16 : 20,
           overflow: "hidden",
           background: "transparent",
           boxShadow: "0 24px 60px rgba(15,15,15,0.22), 0 2px 8px rgba(15,15,15,0.12)",
           zIndex: Z,
           display: visible ? "block" : "none",
           opacity: entered ? 1 : 0,
-          // Grows out of the launcher button in the bottom-right corner.
-          transformOrigin: "100% 100%",
+          // Grows out of the launcher button when docked; from the centre when
+          // expanded. Size changes ease so the expand feels deliberate.
+          transformOrigin: expanded ? "50% 50%" : "100% 100%",
           transform: entered ? "translateY(0) scale(1)" : "translateY(12px) scale(0.96)",
-          transition: "opacity 200ms ease, transform 300ms cubic-bezier(0.16,1,0.3,1)",
+          transition:
+            "opacity 200ms ease, transform 300ms cubic-bezier(0.16,1,0.3,1), right 280ms ease, left 280ms ease, top 280ms ease, bottom 280ms ease, width 280ms ease, height 280ms ease, border-radius 280ms ease",
         }}
       >
         {mounted && (
@@ -148,7 +173,10 @@ export function MaxLauncher({
         aria-label={open ? "Close Max chat" : "Open Max chat"}
         onClick={() => {
           setMounted(true)
-          setOpen((v) => !v)
+          setOpen((v) => {
+            if (v) setExpanded(false) // collapse on close so reopen is docked
+            return !v
+          })
         }}
         style={{
           position: "fixed",

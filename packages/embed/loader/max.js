@@ -52,7 +52,9 @@
     backdropEl: null,
     iframeEl: null,
     observer: null,
+    msgListener: null,
     open: false,
+    expanded: false,
   }
 
   function detectHostTheme() {
@@ -291,9 +293,66 @@
       if (!state.open) {
         p.style.display = "none"
         if (b) b.style.display = "none"
+        // Reset to docked while hidden so the next open isn't stuck expanded.
+        if (state.expanded) applyExpanded(false)
       }
     }, 300)
     state.open = false
+  }
+
+  // Latched full-screen: the embedded app requests it on a canvas workflow.
+  // Grows the docked panel into a centred near-fullscreen overlay (capped on
+  // wide screens) and keeps it there until collapse/close — never auto-reverts.
+  function applyExpanded(expanded) {
+    state.expanded = expanded
+    var p = state.panelEl
+    if (!p) return
+    p.style.transition =
+      "opacity 200ms ease,transform 300ms cubic-bezier(0.16,1,0.3,1)," +
+      "right 280ms ease,left 280ms ease,top 280ms ease,bottom 280ms ease," +
+      "width 280ms ease,height 280ms ease,border-radius 280ms ease"
+    if (expanded) {
+      p.style.right = "max(16px, calc(50vw - 640px))"
+      p.style.left = "max(16px, calc(50vw - 640px))"
+      p.style.top = "16px"
+      p.style.bottom = "16px"
+      p.style.width = "auto"
+      p.style.height = "auto"
+      p.style.maxWidth = "none"
+      p.style.transformOrigin = "50% 50%"
+    } else {
+      p.style.right = "20px"
+      p.style.left = ""
+      p.style.top = ""
+      p.style.bottom = "88px"
+      p.style.width = BUBBLE_W + "px"
+      p.style.height = PANEL_H
+      p.style.maxWidth = "calc(100vw - 40px)"
+      p.style.transformOrigin = "100% 100%"
+    }
+  }
+
+  // Messages FROM the iframe (embed origin only): the in-iframe Close button and
+  // canvas-driven layout changes.
+  function installIframeMessageListener() {
+    if (state.msgListener) window.removeEventListener("message", state.msgListener)
+    state.msgListener = function (event) {
+      if (event.origin !== state.origin) return
+      var data = event.data
+      if (!data || typeof data !== "object") return
+      if (data.type === "max:close") {
+        applyExpanded(false)
+        closePanel()
+      } else if (data.type === "max:setLayout") {
+        if (data.layout === "expanded") {
+          openPanel()
+          applyExpanded(true)
+        } else if (data.layout === "normal") {
+          applyExpanded(false)
+        }
+      }
+    }
+    window.addEventListener("message", state.msgListener)
   }
 
   function mountInline() {
@@ -347,6 +406,7 @@
       whenReady(function () {
         ensureLauncher()
         installHostObserver()
+        installIframeMessageListener()
       })
     }
   }
@@ -394,6 +454,7 @@
 
   function destroy() {
     if (state.observer) state.observer.disconnect()
+    if (state.msgListener) window.removeEventListener("message", state.msgListener)
     if (state.launcherEl) state.launcherEl.remove()
     if (state.panelEl) state.panelEl.remove()
     if (state.backdropEl) state.backdropEl.remove()
@@ -402,7 +463,9 @@
     state.backdropEl = null
     state.iframeEl = null
     state.observer = null
+    state.msgListener = null
     state.open = false
+    state.expanded = false
   }
 
   function whenReady(fn) {
