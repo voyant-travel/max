@@ -355,12 +355,39 @@ describe("useHostSync origin transitions", () => {
 })
 
 describe("MaxLauncher — layout round trips & controls", () => {
+  it("withholds a new scoped layout from the old document until replacement load", async () => {
+    const { container, rerender, findByLabelText } = render(
+      <MaxLauncher token="token-a" tenant="tenant-a" embedOrigin={ORIGIN} defaultOpen />,
+    )
+    const first = harness(container)
+    act(() => first.iframe.dispatchEvent(new Event("load")))
+    first.posts.length = 0
+
+    act(() =>
+      rerender(<MaxLauncher token="token-b" tenant="tenant-b" embedOrigin={ORIGIN} defaultOpen />),
+    )
+    const next = harness(container)
+    const nextSession = new URL(next.iframe.src).searchParams.get("session") as string
+    const expand = await findByLabelText("Expand Max to full page")
+    act(() => expand.click())
+    expect(next.posts.filter((post) => post.type === "max:setLayout")).toHaveLength(0)
+
+    act(() => next.iframe.dispatchEvent(new Event("load")))
+    expect(next.posts.filter((post) => post.type === "max:setLayout").at(-1)).toMatchObject({
+      sessionId: nextSession,
+      tenant: "tenant-b",
+      layout: "expanded",
+    })
+  })
+
   it("expands and restores via the on-panel control, echoing to the iframe", async () => {
     const onLayoutChange = vi.fn()
     const { container, findByLabelText } = render(
       <MaxLauncher token="t" embedOrigin={ORIGIN} defaultOpen onLayoutChange={onLayoutChange} />,
     )
-    const { posts } = harness(container)
+    const { iframe, posts } = harness(container)
+    act(() => iframe.dispatchEvent(new Event("load")))
+    posts.length = 0
 
     const expandBtn = await findByLabelText("Expand Max to full page")
     act(() => {
@@ -383,7 +410,9 @@ describe("MaxLauncher — layout round trips & controls", () => {
     const { container } = render(
       <MaxLauncher token="t" embedOrigin={ORIGIN} defaultOpen onLayoutChange={onLayoutChange} />,
     )
-    const { cw, posts, sessionId } = harness(container)
+    const { iframe, cw, posts, sessionId } = harness(container)
+    act(() => iframe.dispatchEvent(new Event("load")))
+    posts.length = 0
     postFromIframe(cw, sessionId, "max:requestLayout", { layout: "wide" })
     expect(onLayoutChange).toHaveBeenCalledWith("wide")
     // The host echoes the applied layout back to the iframe (round trip).
@@ -425,6 +454,36 @@ describe("MaxLauncher — layout round trips & controls", () => {
       },
     )
     expect(onLayoutChange).not.toHaveBeenCalled()
+  })
+})
+
+describe("MaxApp — scoped route transitions", () => {
+  it("withholds popstate from the old document and replays it after replacement load", () => {
+    window.history.replaceState(null, "", "/max")
+    const { container, rerender } = render(
+      <MaxApp token="token-a" tenant="tenant-a" embedOrigin={ORIGIN} basePath="/max" />,
+    )
+    const first = harness(container)
+    act(() => first.iframe.dispatchEvent(new Event("load")))
+    first.posts.length = 0
+
+    act(() =>
+      rerender(<MaxApp token="token-b" tenant="tenant-b" embedOrigin={ORIGIN} basePath="/max" />),
+    )
+    const next = harness(container)
+    const nextSession = new URL(next.iframe.src).searchParams.get("session") as string
+    act(() => {
+      window.history.replaceState(null, "", "/max/c/new")
+      window.dispatchEvent(new PopStateEvent("popstate"))
+    })
+    expect(next.posts.filter((post) => post.type === "max:setRoute")).toHaveLength(0)
+
+    act(() => next.iframe.dispatchEvent(new Event("load")))
+    expect(next.posts.filter((post) => post.type === "max:setRoute").at(-1)).toMatchObject({
+      sessionId: nextSession,
+      tenant: "tenant-b",
+      path: "/c/new",
+    })
   })
 })
 
@@ -473,7 +532,9 @@ describe("MaxLauncher — idempotent layout round trips", () => {
     const { container } = render(
       <MaxLauncher token="t" embedOrigin={ORIGIN} defaultOpen onLayoutChange={onLayoutChange} />,
     )
-    const { cw, posts, sessionId } = harness(container)
+    const { iframe, cw, posts, sessionId } = harness(container)
+    act(() => iframe.dispatchEvent(new Event("load")))
+    posts.length = 0
 
     postFromIframe(cw, sessionId, "max:requestLayout", { layout: "wide" })
     expect(posts.filter((p) => p.type === "max:setLayout")).toHaveLength(1)

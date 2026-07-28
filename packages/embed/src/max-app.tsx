@@ -43,6 +43,8 @@ export function MaxApp({
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
   const dark = useMemo(() => resolveDark({ theme, lang }), [theme, lang])
   const sessionId = useMemo(createSessionId, [token, tenant, audience, origin])
+  const loadedSessionRef = useRef<string | null>(null)
+  const frameReady = loadedSessionRef.current === sessionId
   useEffect(() => setLoaded(false), [sessionId])
   const scope = useMemo(
     () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
@@ -67,7 +69,7 @@ export function MaxApp({
   }, [token, origin, initialAppPath, sessionId, tenant, audience])
 
   useHostSync({ iframeRef, origin, theme, lang })
-  useRouteSync({ iframeRef, origin, scope, basePath, onRouteChange })
+  useRouteSync({ iframeRef, origin, scope, basePath, ready: frameReady, onRouteChange })
   useContextChannel({ iframeRef, origin, scope, context, onContextClear, onContextRequest })
 
   return (
@@ -81,6 +83,7 @@ export function MaxApp({
         title={title}
         allow="clipboard-read; clipboard-write"
         onLoad={() => {
+          loadedSessionRef.current = sessionId
           setLoaded(true)
           onLoad?.()
         }}

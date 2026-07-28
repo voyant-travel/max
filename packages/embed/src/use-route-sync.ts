@@ -26,16 +26,25 @@ export function useRouteSync({
   origin,
   scope,
   basePath,
+  ready = true,
   onRouteChange,
 }: {
   iframeRef: RefObject<HTMLIFrameElement | null>
   origin: string
   scope: MaxSessionScope
   basePath: string
+  /** False while a scope change is navigating the existing iframe WindowProxy. */
+  ready?: boolean
   onRouteChange?: (path: string) => void
 }) {
   const scopeRef = useRef(scope)
   scopeRef.current = scope
+  // Consulted by listener closures from the previous committed render too.
+  // Passive-effect cleanup runs after paint, so a popstate can otherwise land
+  // in that narrow window and post the new scope through an old `ready=true`
+  // closure to the document being replaced.
+  const readyRef = useRef(ready)
+  readyRef.current = ready
   // The app-relative path most recently replayed *into* the iframe from a
   // popstate. While the iframe settles on it we suppress the history echo.
   const replayedToIframe = useRef<string | null>(null)
@@ -48,6 +57,7 @@ export function useRouteSync({
     const guard = new ReplayGuard()
 
     function post(path: string) {
+      if (!readyRef.current) return
       const target = iframeRef.current?.contentWindow
       if (!target) return
       try {
@@ -95,13 +105,22 @@ export function useRouteSync({
       onRouteChangeRef.current?.(appPath)
     }
 
+    // The src already carries the initial path, but a scope-navigation window
+    // may have withheld a later popstate. Replaying current host state once the
+    // replacement document is ready is idempotent and closes that gap.
+    if (ready) {
+      const appPath = hostPathToAppPath(basePath)
+      replayedToIframe.current = appPath
+      post(appPath)
+    }
+
     window.addEventListener("message", handleMessage)
     window.addEventListener("popstate", handlePopState)
     return () => {
       window.removeEventListener("message", handleMessage)
       window.removeEventListener("popstate", handlePopState)
     }
-  }, [iframeRef, origin, basePath, scope.sessionId, scope.tenant, scope.audience])
+  }, [iframeRef, origin, basePath, ready, scope.sessionId, scope.tenant, scope.audience])
 }
 
 /** Normalize a configured base path: leading slash, no trailing slash, `""` for root. */

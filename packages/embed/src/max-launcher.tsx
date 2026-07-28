@@ -68,6 +68,8 @@ export function MaxLauncher({
   const restoreFocusRef = useRef<HTMLElement | null>(null)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
   const sessionId = useMemo(createSessionId, [token, tenant, audience, origin])
+  const loadedSessionRef = useRef<string | null>(null)
+  const frameReady = loadedSessionRef.current === sessionId
   useEffect(() => setLoaded(false), [sessionId])
   const scope = useMemo(
     () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
@@ -81,16 +83,21 @@ export function MaxLauncher({
   onLayoutChangeRef.current = onLayoutChange
   const scopeRef = useRef(scope)
   scopeRef.current = scope
+  const originRef = useRef(origin)
+  originRef.current = origin
   // Always-current layout, so the idempotence check in `applyLayout` works even
   // from the message-listener effect's stale render closure.
   const layoutRef = useRef(layout)
   layoutRef.current = layout
 
   function postToIframe(type: "max:setLayout", payload: Record<string, unknown>) {
+    // A scope change navigates the existing WindowProxy. Until the replacement
+    // document loads, never disclose the new session/scope to the old document.
+    if (loadedSessionRef.current !== scopeRef.current.sessionId) return
     const target = iframeRef.current?.contentWindow
     if (!target) return
     try {
-      target.postMessage(createEnvelope(scopeRef.current, type, payload), origin)
+      target.postMessage(createEnvelope(scopeRef.current, type, payload), originRef.current)
     } catch {
       /* iframe might have navigated */
     }
@@ -209,6 +216,15 @@ export function MaxLauncher({
     onContextRequest,
   })
 
+  // Re-deliver the latest host-owned layout after a scope navigation. Layout
+  // changes made while the replacement document was loading were intentionally
+  // withheld by postToIframe above.
+  useEffect(() => {
+    if (!frameReady) return
+    postToIframe("max:setLayout", { layout: layoutRef.current })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameReady, sessionId])
+
   // In-iframe messages, validated against the protocol (strict origin + source +
   // session/tenant, replay-guarded): "Close" posts `max:close`; a canvas workflow
   // or the app posts `max:requestLayout` (legacy `max:setLayout` still honoured).
@@ -290,7 +306,10 @@ export function MaxLauncher({
             src={src}
             title={title}
             allow="clipboard-read; clipboard-write"
-            onLoad={() => setLoaded(true)}
+            onLoad={() => {
+              loadedSessionRef.current = sessionId
+              setLoaded(true)
+            }}
             style={{
               width: "100%",
               height: "100%",
