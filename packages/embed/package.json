@@ -16,7 +16,8 @@
   },
   "files": [
     "dist",
-    "loader"
+    "loader",
+    "PROTOCOL.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

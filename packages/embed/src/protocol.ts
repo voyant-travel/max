@@ -48,6 +48,13 @@ export const MAX_CHANNEL = "max" as const
 /** Default freshness window for enveloped messages (ms). */
 export const DEFAULT_FRESHNESS_MS = 30_000
 
+/** Upper bound on a `msgId` we're willing to remember (defence against a
+ *  megabyte string blowing up the replay set). Must be non-empty. */
+export const MAX_MSGID_LEN = 200
+
+/** Upper bound on an app-relative navigation path. */
+export const MAX_PATH_LEN = 2048
+
 /** Session/tenant scope this mount enforces on every enveloped message. */
 export type MaxSessionScope = {
   /** Per-mount opaque id. Both sides echo it; a mismatch is rejected. */
@@ -69,6 +76,51 @@ export const MAX_LAYOUTS: readonly MaxLayout[] = ["normal", "wide", "expanded"]
 
 export function isMaxLayout(value: unknown): value is MaxLayout {
   return value === "normal" || value === "wide" || value === "expanded"
+}
+
+/**
+ * A navigation/route path is only accepted when it is a *safe, app-relative
+ * absolute path*. This is the sole sink for iframe-supplied paths (they get
+ * replayed into `history.pushState`), so it must reject anything a browser might
+ * resolve to a foreign document:
+ *
+ *  - must begin with a single `/` (app-relative absolute — no scheme, no bare
+ *    relative segment);
+ *  - not `//host` / `/\host` (protocol-relative — browsers treat both as an
+ *    absolute URL to another origin);
+ *  - no backslashes (normalised to `/` by browsers, used to smuggle `//`);
+ *  - no control characters (tab/newline/NUL are stripped by URL parsing and can
+ *    hide a scheme or host);
+ *  - no `..` traversal segments, raw or percent-encoded;
+ *  - valid percent-encoding (a malformed `%` sequence is rejected outright);
+ *  - within a sane length bound.
+ */
+export function isSafeAppPath(value: unknown): value is string {
+  if (typeof value !== "string") return false
+  if (value.length === 0 || value.length > MAX_PATH_LEN) return false
+  if (value.charCodeAt(0) !== 47 /* "/" */) return false
+  if (value.charCodeAt(1) === 47 /* "//" protocol-relative */) return false
+  if (value.includes("\\")) return false
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i)
+    if (c <= 0x1f || c === 0x7f) return false // control chars
+  }
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(value)
+  } catch {
+    return false // malformed percent-encoding
+  }
+  if (decoded.includes("\\")) return false
+  if (decoded.charCodeAt(0) === 47 && decoded.charCodeAt(1) === 47) return false
+  for (let i = 0; i < decoded.length; i++) {
+    const c = decoded.charCodeAt(i)
+    if (c <= 0x1f || c === 0x7f) return false
+  }
+  for (const seg of decoded.split("/")) {
+    if (seg === "..") return false
+  }
+  return true
 }
 
 /** Outbound message types (host → iframe). */
@@ -252,6 +304,58 @@ export type ValidateFailure =
   | "audience-mismatch"
   | "replay"
   | "bad-context"
+  | "bad-path"
+  | "bad-layout"
+
+/** Scope-field failures shared by every enveloped-message validator. */
+export type EnvelopeScopeFailure =
+  | "version-mismatch"
+  | "session-mismatch"
+  | "tenant-mismatch"
+  | "audience-mismatch"
+
+/**
+ * Validate the versioned envelope's scope fields (`v`, `sessionId`,
+ * `tenant`, `audience`) against this mount's scope. Shared by
+ * {@link validateInbound} (host side) and the receiver-side state machine so the
+ * tenant/session/version gate is defined in exactly one place.
+ */
+export function validateEnvelopeScope(
+  raw: Record<string, unknown>,
+  scope: MaxSessionScope,
+): EnvelopeScopeFailure | null {
+  if (raw.v !== PROTOCOL_VERSION) return "version-mismatch"
+  if (raw.sessionId !== scope.sessionId) return "session-mismatch"
+  if (scope.tenant != null && (raw.tenant ?? null) !== scope.tenant) return "tenant-mismatch"
+  if (scope.audience != null && (raw.audience ?? null) !== scope.audience)
+    return "audience-mismatch"
+  return null
+}
+
+/**
+ * Strict per-`type` payload validation, shared by the legacy and enveloped
+ * paths. A message whose payload doesn't match its type exactly is rejected —
+ * never silently coerced. Context payloads are handled by the caller (they only
+ * ride the enveloped path).
+ */
+function validatePayload(
+  type: MaxInboundType,
+  raw: Record<string, unknown>,
+): { ok: true; path?: string; layout?: MaxLayout } | { ok: false; reason: ValidateFailure } {
+  switch (type) {
+    case "max:navigate": {
+      if (!isSafeAppPath(raw.path)) return { ok: false, reason: "bad-path" }
+      return { ok: true, path: raw.path }
+    }
+    case "max:requestLayout":
+    case "max:setLayout": {
+      if (!isMaxLayout(raw.layout)) return { ok: false, reason: "bad-layout" }
+      return { ok: true, layout: raw.layout }
+    }
+    default:
+      return { ok: true }
+  }
+}
 
 /**
  * Validate a raw `MessageEvent` against the protocol. Pure and total: returns a
@@ -285,6 +389,10 @@ export function validateInbound(
   if (!enveloped) {
     // Legacy path: only the small control set, only after origin+source passed.
     if (!LEGACY_INBOUND_TYPES.has(inboundType)) return { ok: false, reason: "unknown-type" }
+    // Payloads are still validated strictly — a legacy `max:navigate` with an
+    // unsafe path or a `max:setLayout` with a bogus layout is dropped.
+    const payload = validatePayload(inboundType, raw)
+    if (!payload.ok) return payload
     const legacyMsg: MaxInboundMessage = {
       channel: MAX_CHANNEL,
       v: PROTOCOL_VERSION,
@@ -295,20 +403,14 @@ export function validateInbound(
       ts: 0,
       type: inboundType,
     }
-    if (inboundType === "max:navigate" && typeof raw.path === "string") legacyMsg.path = raw.path
-    if (inboundType === "max:setLayout" && isLayout(raw.layout)) legacyMsg.layout = raw.layout
+    if (payload.path !== undefined) legacyMsg.path = payload.path
+    if (payload.layout !== undefined) legacyMsg.layout = payload.layout
     return { ok: true, message: legacyMsg, legacy: true }
   }
 
-  // (4) version
-  if (raw.v !== PROTOCOL_VERSION) return { ok: false, reason: "version-mismatch" }
-  // (5) session identity
-  if (raw.sessionId !== opts.scope.sessionId) return { ok: false, reason: "session-mismatch" }
-  // (6) tenant / audience scope — enforced only when this mount declares one.
-  if (opts.scope.tenant != null && (raw.tenant ?? null) !== opts.scope.tenant)
-    return { ok: false, reason: "tenant-mismatch" }
-  if (opts.scope.audience != null && (raw.audience ?? null) !== opts.scope.audience)
-    return { ok: false, reason: "audience-mismatch" }
+  // (4–6) version / session / tenant / audience — shared scope gate.
+  const scopeFailure = validateEnvelopeScope(raw, opts.scope)
+  if (scopeFailure) return { ok: false, reason: scopeFailure }
 
   // (7) replay / freshness
   if (opts.replay) {
@@ -316,6 +418,10 @@ export function validateInbound(
     const ts = typeof raw.ts === "number" ? raw.ts : 0
     if (!opts.replay.accept(msgId, ts, opts.at)) return { ok: false, reason: "replay" }
   }
+
+  // strict per-type payload validation
+  const payload = validatePayload(inboundType, raw)
+  if (!payload.ok) return payload
 
   const message: MaxInboundMessage = {
     channel: MAX_CHANNEL,
@@ -328,8 +434,8 @@ export function validateInbound(
     type: inboundType,
   }
 
-  if (typeof raw.path === "string") message.path = raw.path
-  if (isLayout(raw.layout)) message.layout = raw.layout
+  if (payload.path !== undefined) message.path = payload.path
+  if (payload.layout !== undefined) message.layout = payload.layout
 
   // (8) entity type — any attached context is re-normalised or rejected.
   if ("context" in raw) {
@@ -343,8 +449,4 @@ export function validateInbound(
   }
 
   return { ok: true, message, legacy: false }
-}
-
-function isLayout(value: unknown): value is MaxLayout {
-  return isMaxLayout(value)
 }

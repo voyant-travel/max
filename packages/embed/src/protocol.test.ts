@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
-import { createEnvelope, type MaxSessionScope, ReplayGuard, validateInbound } from "./protocol.js"
+import {
+  createEnvelope,
+  isSafeAppPath,
+  type MaxSessionScope,
+  ReplayGuard,
+  validateInbound,
+} from "./protocol.js"
 
 const ORIGIN = "https://agent-embed.voyant.travel"
 const SOURCE = { name: "iframe" } as unknown as Window
@@ -168,6 +174,81 @@ describe("validateInbound — legacy (un-enveloped) messages", () => {
   it("does not accept the new context types over the legacy (un-enveloped) path", () => {
     const r = validateInbound(ev({ type: "max:requestContext" }), baseOpts())
     expect(r).toEqual({ ok: false, reason: "unknown-type" })
+  })
+})
+
+describe("isSafeAppPath", () => {
+  it("accepts ordinary app-relative absolute paths", () => {
+    for (const p of ["/", "/c/abc", "/bookings/VYT-1", "/a/b?q=1#frag", "/x%20y"]) {
+      expect(isSafeAppPath(p)).toBe(true)
+    }
+  })
+
+  it("rejects non-strings, empty, and over-long paths", () => {
+    expect(isSafeAppPath(undefined)).toBe(false)
+    expect(isSafeAppPath(42)).toBe(false)
+    expect(isSafeAppPath("")).toBe(false)
+    expect(isSafeAppPath(`/${"a".repeat(4000)}`)).toBe(false)
+  })
+
+  it("rejects relative paths and schemes", () => {
+    expect(isSafeAppPath("c/abc")).toBe(false)
+    expect(isSafeAppPath("javascript:alert(1)")).toBe(false)
+    expect(isSafeAppPath("http://evil.example")).toBe(false)
+  })
+
+  it("rejects protocol-relative and backslash host smuggling", () => {
+    expect(isSafeAppPath("//evil.example")).toBe(false)
+    expect(isSafeAppPath("/\\evil.example")).toBe(false)
+    expect(isSafeAppPath("/\\/evil.example")).toBe(false)
+    expect(isSafeAppPath("/%2f%2fevil.example")).toBe(false)
+  })
+
+  it("rejects traversal, control chars, and malformed encoding", () => {
+    expect(isSafeAppPath("/../../etc/passwd")).toBe(false)
+    expect(isSafeAppPath("/a/../b")).toBe(false)
+    expect(isSafeAppPath("/a/%2e%2e/b")).toBe(false)
+    expect(isSafeAppPath("/a\tb")).toBe(false)
+    expect(isSafeAppPath("/a\nb")).toBe(false)
+    expect(isSafeAppPath("/%zz")).toBe(false)
+  })
+})
+
+describe("validateInbound — strict per-type payloads", () => {
+  it("rejects a max:navigate with an unsafe path", () => {
+    const msg = inbound("max:navigate", { path: "//evil.example" })
+    expect(validateInbound(ev(msg), baseOpts())).toEqual({ ok: false, reason: "bad-path" })
+  })
+
+  it("rejects a max:navigate with a traversal path", () => {
+    const msg = inbound("max:navigate", { path: "/../secret" })
+    expect(validateInbound(ev(msg), baseOpts())).toEqual({ ok: false, reason: "bad-path" })
+  })
+
+  it("accepts a max:navigate with a safe path", () => {
+    const r = validateInbound(ev(inbound("max:navigate", { path: "/c/abc" })), baseOpts())
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.message.path).toBe("/c/abc")
+  })
+
+  it("rejects a legacy max:navigate with an unsafe path", () => {
+    const r = validateInbound(ev({ type: "max:navigate", path: "\\\\evil" }), baseOpts())
+    expect(r.ok).toBe(false)
+  })
+
+  it("rejects a max:requestLayout / max:setLayout with a missing or bad layout", () => {
+    expect(validateInbound(ev(inbound("max:requestLayout", {})), baseOpts())).toEqual({
+      ok: false,
+      reason: "bad-layout",
+    })
+    expect(validateInbound(ev(inbound("max:setLayout", { layout: "huge" })), baseOpts())).toEqual({
+      ok: false,
+      reason: "bad-layout",
+    })
+    expect(validateInbound(ev({ type: "max:setLayout" }), baseOpts())).toEqual({
+      ok: false,
+      reason: "bad-layout",
+    })
   })
 })
 

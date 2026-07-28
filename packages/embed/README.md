@@ -143,16 +143,59 @@ never silently discards a context.
 > consequence-preview for every action server-side, regardless of the supplied
 > context. Never use it to bypass a check. Exported as `CONTEXT_SECURITY_INVARIANT`.
 
-**Historical conversations** keep the exact context they were created with — they
-never inherit the current host context. A pinned context that no longer resolves
-is shown with a non-destructive `MaxContextStatus`
-(`active` / `stale` / `archived` / `deleted` / `unauthorized`); see
-`deriveContextStatus`.
+**Historical conversations** — the contract keeps a pinned context and represents
+it non-destructively with a `MaxContextStatus`
+(`active` / `stale` / `archived` / `deleted` / `unauthorized`) via
+`deriveContextStatus`, so a stored conversation never has to inherit the current
+host context. Actually persisting those snapshots and resolving them live is the
+platform's job — see the scope note below.
 
 The channel is strict: inbound messages are validated by exact origin, by
 `event.source` (must be *this* iframe — blocks cross-tab replay), by session id
-(blocks cross-session replay), by tenant/audience scope, and by a replay/freshness
-guard; the entity type is validated too. Full spec in [`PROTOCOL.md`](./PROTOCOL.md).
+(blocks cross-session replay), by tenant/audience scope, by a replay/freshness
+guard, and by strict per-type payload validation (`max:navigate` accepts only
+safe app-relative paths; layout messages require a valid layout); the entity type
+is validated too. Full spec in [`PROTOCOL.md`](./PROTOCOL.md).
+
+### Receiving context (iframe / consumer side)
+
+`MaxContextReceiver` (alias `createContextReceiver`) is the portable, framework-
+agnostic state machine for the *receiving* end of the channel. Feed it raw
+`message` events and it maintains an ordered, replay-resistant, verified snapshot:
+
+```ts
+import { createContextReceiver } from "@voyant-travel/max-embed"
+
+const receiver = createContextReceiver({
+  expectedOrigin: "https://your-host.example",
+  expectedSource: window.parent, // the host window (strict source check)
+  scope: { sessionId, tenant: "acme", audience: "agent-desktop" },
+  // Optional: resolve *display* status only — never authorization.
+  verify: async (ctx) => (await stillExists(ctx)) ? { ok: true } : { ok: false, reason: "deleted" },
+})
+
+window.addEventListener("message", async (event) => {
+  await receiver.ingest(event)
+  render(receiver.snapshot()) // { status: "active" | "cleared" | "stale" | "degraded", context }
+})
+```
+
+It enforces exact origin/source, the `v1` channel, exact payload shape,
+session/tenant/audience scope, a finite strictly-positive fresh `ts` and a bounded
+non-empty `msgId` (a `ts=0` never bypasses freshness), replay dedupe, entity
+normalization, monotonic version/`capturedAt` ordering (older updates are rejected
+out-of-order), and idempotence. The `verify` callback resolves *display* status
+only; it does **not** authorize actions (see the security invariant).
+
+### Scope: what this package is (and isn't)
+
+`@voyant-travel/max-embed` ships the **portable contract and state machine** — the
+wire format, the host- and receiver-side validators, the ordering/verification
+logic, and the React/loader plumbing. Durable snapshot **persistence**, live entity
+**resolution**, and the in-iframe context/approval **UI** live in the Max platform
+(tracked in platform#1515) and are **not** part of this package (nor necessarily
+deployed yet). The runnable `examples/context-demo` fixture is a reference
+implementation of the iframe side of the protocol, not a production backend.
 
 ## Panel layouts (launcher)
 

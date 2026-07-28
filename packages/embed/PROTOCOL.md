@@ -4,6 +4,14 @@ This document specifies the public `postMessage` protocol between a host page
 (the React components in this package, or the `<script>` loader) and the Max
 iframe. It is the contract an alternative host or an updated iframe must follow.
 
+> **Scope.** This package is the *portable contract* — the wire format plus the
+> host-side (`validateInbound`) and receiver-side (`MaxContextReceiver`)
+> validators/state machine. Durable snapshot **persistence**, live entity
+> **resolution**, and the in-iframe context/approval **UI** are the Max platform's
+> responsibility (platform#1515) and are **not** implemented here (nor necessarily
+> deployed). The `examples/context-demo` fixture is a reference iframe, not a
+> backend.
+
 > **Security invariant.** The host context is a **discovery hint only**. It never
 > authorises anything. Max re-verifies identity, authentication, authorization,
 > human approval and consequence-preview for **every** action server-side against
@@ -51,8 +59,34 @@ For enveloped messages, additionally:
 5. `sessionId` equals this mount's id (blocks cross-session replay).
 6. `tenant` / `audience` match when the host declares them.
 7. `msgId` is unseen and `ts` is within ±30 s (replay / freshness guard).
-8. Any attached `context` re-normalises cleanly (valid entity type) — otherwise
+8. The payload matches the `type` **exactly** (strict validation): `max:navigate`
+   carries a *safe app-relative path* (see below); `max:requestLayout` /
+   `max:setLayout` carry a valid `normal | wide | expanded`. A malformed payload
+   drops the whole message.
+9. Any attached `context` re-normalises cleanly (valid entity type) — otherwise
    the whole message is dropped.
+
+### Safe navigation paths
+
+`max:navigate` paths are the only iframe-supplied value replayed into the host's
+`history.pushState`, so they are validated by `isSafeAppPath`. A path is accepted
+only when it is an app-relative absolute path (`/…`) that is **not**
+protocol-relative (`//host`, `/\host`), contains no backslashes, no control
+characters, no `..` traversal (raw or percent-encoded), and is validly encoded and
+within a length bound. Schemes (`javascript:`, `http:`), relative paths, and
+malformed encodings are rejected.
+
+### Receiver-side validation (host → iframe)
+
+The iframe (or any consumer) validates the *host's* `max:setContext` stream with
+the mirror-image `MaxContextReceiver` state machine: exact origin/source, `v1`
+channel, exact payload shape, session/tenant/audience scope, a **finite,
+strictly-positive** fresh `ts` (a `ts=0` never bypasses freshness), a bounded
+non-empty `msgId` (replay dedupe), entity normalization, **monotonic
+version/`capturedAt` ordering** (older updates rejected out-of-order), and
+idempotence. It surfaces an explicit snapshot — `active` / `cleared` / `stale` /
+`degraded` — with an injectable sync/async verifier that resolves *display* status
+only (never authorization).
 
 ## Messages
 
@@ -114,7 +148,9 @@ active | stale | archived | deleted | unauthorized
 ```
 
 `deriveContextStatus(pinned, live, resolution?)` computes this without ever
-mutating the pinned context.
+mutating the pinned context. This is the *contract* for representing a pinned
+context; storing conversations and resolving their contexts live is the platform's
+job (platform#1515), not this package.
 
 ## Layouts & round trips
 

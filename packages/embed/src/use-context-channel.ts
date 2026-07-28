@@ -25,6 +25,7 @@ export function useContextChannel({
   origin,
   scope,
   context,
+  mounted = true,
   onContextClear,
   onContextRequest,
 }: {
@@ -32,6 +33,13 @@ export function useContextChannel({
   origin: string
   scope: MaxSessionScope
   context?: MaxHostContext | null
+  /**
+   * Whether the iframe element is currently in the DOM. `MaxLauncher` mounts its
+   * iframe lazily on first open, so the `load` listener must (re)attach when this
+   * flips true — otherwise the initial context is never delivered to a launcher
+   * that was opened after mount. Defaults to `true` (always-mounted iframes).
+   */
+  mounted?: boolean
   onContextClear?: () => void
   onContextRequest?: () => void
 }) {
@@ -51,12 +59,17 @@ export function useContextChannel({
   requestRef.current = onContextRequest
   const normalizedRef = useRef(normalized)
   normalizedRef.current = normalized
+  // The content window we last successfully delivered a context to. Guards
+  // against a double initial delivery (eager signature effect + iframe `load`)
+  // for the same window, while still re-delivering to a *fresh* window on reload.
+  const deliveredTo = useRef<Window | null>(null)
 
   function post(payload: Record<string, unknown> & { type: "max:setContext" }) {
     const target = iframeRef.current?.contentWindow
     if (!target) return
     try {
       target.postMessage(createEnvelope(scopeRef.current, payload.type, payload), origin)
+      deliveredTo.current = target
     } catch {
       /* iframe might have navigated */
     }
@@ -76,18 +89,24 @@ export function useContextChannel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature])
 
-  // Re-push current context when the iframe (re)loads.
+  // Deliver the current context when the iframe first (or re-)loads. Re-runs when
+  // `mounted` flips true so a lazily-mounted launcher iframe gets a listener; the
+  // `deliveredTo` guard keeps this to exactly one effective delivery per window
+  // (a fresh window on reload is delivered to again). This is what makes the
+  // initial context arrive *without* the iframe having to send `max:requestContext`.
   useEffect(() => {
     const node = iframeRef.current
     if (!node) return
     const onLoad = () => {
       const cur = normalizedRef.current
-      if (cur !== undefined) sendContext(cur)
+      if (cur === undefined) return
+      if (deliveredTo.current === node.contentWindow) return
+      sendContext(cur)
     }
     node.addEventListener("load", onLoad)
     return () => node.removeEventListener("load", onLoad)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [mounted])
 
   // iframe → host: requestContext / clearContext.
   useEffect(() => {
