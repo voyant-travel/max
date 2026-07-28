@@ -101,6 +101,39 @@ describe("useContextChannel via MaxChat", () => {
     expect(posts.filter((p) => p.type === "max:setContext")).toHaveLength(0)
   })
 
+  it("re-posts when context timestamp or metadata changes", () => {
+    const initial: MaxHostContext = {
+      ...product,
+      capturedAt: "2026-07-28T10:00:00.000Z",
+      meta: { view: "overview" },
+    }
+    const { container, rerender } = render(
+      <MaxChat token="t" embedOrigin={ORIGIN} context={initial} />,
+    )
+    const { posts } = harness(container)
+
+    act(() => {
+      rerender(
+        <MaxChat
+          token="t"
+          embedOrigin={ORIGIN}
+          context={{
+            ...initial,
+            capturedAt: "2026-07-28T10:01:00.000Z",
+            meta: { view: "pricing" },
+          }}
+        />,
+      )
+    })
+
+    expect(posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
+      context: {
+        capturedAt: "2026-07-28T10:01:00.000Z",
+        meta: { view: "pricing" },
+      },
+    })
+  })
+
   it("clears explicitly when context becomes null", () => {
     const { container, rerender } = render(
       <MaxChat token="t" embedOrigin={ORIGIN} context={product} />,

@@ -127,5 +127,7 @@ function contextSignature(ctx: MaxHostContext | null | undefined): string {
     ctx.label,
     ctx.route ?? null,
     ctx.subView ?? null,
+    ctx.capturedAt ?? null,
+    ctx.meta ?? null,
   ])
 }
