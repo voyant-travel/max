@@ -639,6 +639,8 @@
       }, 260)
       // Re-push the current context to a fresh content window.
       if (state.context !== undefined) sendContext(state.context)
+      postToIframe(envelope("max:setTheme", { theme: state.theme }))
+      postToIframe(envelope("max:setLang", { lang: state.lang || "" }))
       // A host may request wide/expanded while the iframe is still loading.
       // The eager acknowledgement targets the initial document and can be
       // dropped, so replay the applied layout to this loaded generation.
@@ -776,6 +778,8 @@
     state.iframeEl.addEventListener("load", function () {
       if (state.generation !== generation) return
       if (state.context !== undefined) sendContext(state.context)
+      postToIframe(envelope("max:setTheme", { theme: state.theme }))
+      postToIframe(envelope("max:setLang", { lang: state.lang || "" }))
     })
     host.appendChild(state.iframeEl)
   }

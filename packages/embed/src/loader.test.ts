@@ -85,6 +85,8 @@ function inbound(
 
 const setContextPosts = () => posts.filter((p) => p.type === "max:setContext")
 const setLayoutPosts = () => posts.filter((p) => p.type === "max:setLayout")
+const setThemePosts = () => posts.filter((p) => p.type === "max:setTheme")
+const setLangPosts = () => posts.filter((p) => p.type === "max:setLang")
 
 beforeEach(() => {
   const w = window as unknown as Win
@@ -314,6 +316,37 @@ describe("loader — idempotent layout round trips", () => {
     iframe.dispatchEvent(new Event("load"))
     expect(setLayoutPosts()).toHaveLength(2)
     expect(setLayoutPosts().at(-1)).toMatchObject({ layout: "wide" })
+  })
+})
+
+describe("loader — host preference replay", () => {
+  it("replays pre-load theme and language changes to the loaded document", async () => {
+    document.documentElement.className = "light"
+    document.documentElement.lang = "en"
+    const { iframe } = boot()
+
+    document.documentElement.className = "dark"
+    document.documentElement.lang = "fr"
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    posts = []
+
+    iframe.dispatchEvent(new Event("load"))
+
+    expect(setThemePosts().at(-1)).toMatchObject({ theme: "dark" })
+    expect(setLangPosts().at(-1)).toMatchObject({ lang: "fr" })
+  })
+
+  it("replays an explicit language clear to a reloaded document", async () => {
+    document.documentElement.lang = "en"
+    const { iframe } = boot()
+    iframe.dispatchEvent(new Event("load"))
+
+    document.documentElement.removeAttribute("lang")
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    posts = []
+    iframe.dispatchEvent(new Event("load"))
+
+    expect(setLangPosts().at(-1)).toMatchObject({ lang: "" })
   })
 })
 

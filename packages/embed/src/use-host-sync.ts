@@ -75,6 +75,7 @@ export function useHostSync({
     theme: null,
     lang: null,
   })
+  const initialized = useRef({ theme: false, lang: false })
 
   // Track whether each axis is in auto-detect mode (no caller prop).
   const autoTheme = themeProp === undefined
@@ -118,8 +119,12 @@ export function useHostSync({
     const onLoad = () => {
       if (iframeRef.current !== node) return
       hasLoaded.current = true
-      if (lastSent.current.theme) post({ type: "max:setTheme", theme: lastSent.current.theme })
-      if (lastSent.current.lang) post({ type: "max:setLang", lang: lastSent.current.lang })
+      if (initialized.current.theme && lastSent.current.theme) {
+        post({ type: "max:setTheme", theme: lastSent.current.theme })
+      }
+      if (initialized.current.lang) {
+        post({ type: "max:setLang", lang: lastSent.current.lang ?? "" })
+      }
     }
     node.addEventListener("load", onLoad)
     return () => node.removeEventListener("load", onLoad)
@@ -131,6 +136,7 @@ export function useHostSync({
     if (autoTheme || !themeProp) return
     if (lastSent.current.theme === themeProp) return
     lastSent.current.theme = themeProp
+    initialized.current.theme = true
     post({ type: "max:setTheme", theme: themeProp })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoTheme, themeProp])
@@ -139,6 +145,7 @@ export function useHostSync({
     if (autoLang || !langProp) return
     if (lastSent.current.lang === langProp) return
     lastSent.current.lang = langProp
+    initialized.current.lang = true
     post({ type: "max:setLang", lang: langProp })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoLang, langProp])
@@ -149,10 +156,23 @@ export function useHostSync({
     if (typeof MutationObserver === "undefined") return
     if (typeof document === "undefined") return
 
-    // Seed lastSent with current host values so the first push on iframe load
-    // carries the right state.
-    if (autoTheme) lastSent.current.theme = detectHostTheme()
-    if (autoLang) lastSent.current.lang = detectHostLang()
+    // Seed and push the detected values. The immediate push matters when a
+    // caller releases a previously controlled prop back to auto mode: entering
+    // auto mode does not itself cause a DOM mutation.
+    if (autoTheme) {
+      const next = detectHostTheme()
+      const changed = !initialized.current.theme || next !== lastSent.current.theme
+      lastSent.current.theme = next
+      initialized.current.theme = true
+      if (changed && next) post({ type: "max:setTheme", theme: next })
+    }
+    if (autoLang) {
+      const next = detectHostLang()
+      const changed = !initialized.current.lang || next !== lastSent.current.lang
+      lastSent.current.lang = next
+      initialized.current.lang = true
+      if (changed) post({ type: "max:setLang", lang: next ?? "" })
+    }
 
     const observer = new MutationObserver(() => {
       if (autoTheme) {

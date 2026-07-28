@@ -403,6 +403,50 @@ describe("useContextChannel via MaxChat", () => {
 })
 
 describe("useHostSync origin transitions", () => {
+  it("pushes detected values when controlled props return to auto mode", async () => {
+    document.documentElement.className = "light"
+    document.documentElement.lang = "en"
+    const { container, rerender } = render(
+      <MaxChat token="t" embedOrigin={ORIGIN} theme="dark" lang="fr" />,
+    )
+    const current = harness(container)
+    act(() => current.iframe.dispatchEvent(new Event("load")))
+    current.posts.length = 0
+
+    act(() => rerender(<MaxChat token="t" embedOrigin={ORIGIN} />))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(current.posts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "max:setTheme", theme: "light" }),
+        expect.objectContaining({ type: "max:setLang", lang: "en" }),
+      ]),
+    )
+
+    document.documentElement.className = ""
+    document.documentElement.removeAttribute("lang")
+  })
+
+  it("replays an auto-detected language clear after iframe reload", async () => {
+    document.documentElement.lang = "en"
+    const { container } = render(<MaxChat token="t" embedOrigin={ORIGIN} />)
+    const current = harness(container)
+    act(() => current.iframe.dispatchEvent(new Event("load")))
+    current.posts.length = 0
+
+    act(() => document.documentElement.removeAttribute("lang"))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(current.posts.filter((post) => post.type === "max:setLang").at(-1)).toMatchObject({
+      lang: "",
+    })
+
+    current.posts.length = 0
+    act(() => current.iframe.dispatchEvent(new Event("load")))
+    expect(current.posts.filter((post) => post.type === "max:setLang").at(-1)).toMatchObject({
+      lang: "",
+    })
+  })
+
   it("rebinds load and auto-detect updates to the new normalized origin", async () => {
     document.documentElement.className = "light"
     document.documentElement.lang = "en"
