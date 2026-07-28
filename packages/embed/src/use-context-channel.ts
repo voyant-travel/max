@@ -56,6 +56,8 @@ export function useContextChannel({
   const lastSentSig = useRef<string | undefined>(undefined)
   const scopeGeneration = `${origin}\u0000${scope.sessionId}\u0000${scope.tenant ?? ""}\u0000${scope.audience ?? ""}`
   const activeGeneration = useRef(scopeGeneration)
+  const originRef = useRef(origin)
+  originRef.current = origin
   const scopeRef = useRef(scope)
   scopeRef.current = scope
   const clearRef = useRef(onContextClear)
@@ -83,7 +85,7 @@ export function useContextChannel({
     const target = iframeRef.current?.contentWindow
     if (!target) return
     try {
-      target.postMessage(createEnvelope(scopeRef.current, payload.type, payload), origin)
+      target.postMessage(createEnvelope(scopeRef.current, payload.type, payload), originRef.current)
     } catch {
       /* iframe might have navigated */
     }
@@ -107,7 +109,11 @@ export function useContextChannel({
   }, [signature])
 
   // Deliver the current context when the iframe first (or re-)loads. Re-runs when
-  // `mounted` flips true so a lazily-mounted launcher iframe gets a listener; the
+  // `mounted` flips true so a lazily-mounted launcher iframe gets a listener.
+  // Keep this listener stable across scope changes: a replacement document can
+  // load between commit and passive-effect cleanup, and swapping listeners would
+  // either let the old closure use its origin or discard the only load event.
+  // The stable listener reads origin/scope/context from synchronous refs instead.
   // Each `load` event is a new document generation. Browsers retain the same
   // `contentWindow` object across navigations, so window identity cannot dedupe
   // loads without also starving a freshly navigated document. This is what
@@ -116,13 +122,10 @@ export function useContextChannel({
   useEffect(() => {
     const node = iframeRef.current
     if (!node) return
-    const listenerGeneration = scopeGeneration
     const onLoad = () => {
-      // React may commit the replacement iframe document before it has cleaned
-      // up the previous passive effect. Ignore that previous generation's
-      // native listener: it captured the old target origin and must not mark
-      // the replacement generation loaded or send its context.
-      if (activeGeneration.current !== listenerGeneration) return
+      // If React replaced the iframe node itself, a late load from the detached
+      // node must not mark or post to the replacement before it has loaded.
+      if (iframeRef.current !== node) return
       hasLoaded.current = true
       const cur = normalizedRef.current
       if (cur === undefined) return
@@ -131,7 +134,7 @@ export function useContextChannel({
     node.addEventListener("load", onLoad)
     return () => node.removeEventListener("load", onLoad)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, scopeGeneration])
+  }, [mounted])
 
   // iframe → host: requestContext / clearContext.
   useEffect(() => {

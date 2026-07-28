@@ -26,11 +26,13 @@ function harness(container: HTMLElement) {
   const iframe = container.querySelector("iframe") as HTMLIFrameElement
   const cw = iframe.contentWindow as Window
   const posts: Array<Record<string, unknown>> = []
-  cw.postMessage = ((msg: unknown) => {
+  const targetOrigins: string[] = []
+  cw.postMessage = ((msg: unknown, targetOrigin: string) => {
     posts.push(msg as Record<string, unknown>)
+    targetOrigins.push(targetOrigin)
   }) as typeof cw.postMessage
   const sessionId = new URL(iframe.src).searchParams.get("session") as string
-  return { iframe, cw, posts, sessionId }
+  return { iframe, cw, posts, sessionId, targetOrigins }
 }
 
 /** Dispatch an enveloped iframe→host message with a valid/overridable envelope. */
@@ -96,7 +98,7 @@ describe("useContextChannel via MaxChat", () => {
     })
   })
 
-  it("ignores a previous generation's load listener after a scope change", () => {
+  it("handles a replacement load with the stable listener and current scope", () => {
     const loadListeners: EventListener[] = []
     const originalAdd = HTMLIFrameElement.prototype.addEventListener
     const addSpy = vi
@@ -112,7 +114,7 @@ describe("useContextChannel via MaxChat", () => {
       )
       harness(container)
       expect(loadListeners.length).toBeGreaterThan(0)
-      const staleOnLoad = loadListeners.at(-1) as EventListener
+      const stableOnLoad = loadListeners.at(-1) as EventListener
 
       act(() => {
         rerender(
@@ -121,15 +123,14 @@ describe("useContextChannel via MaxChat", () => {
       })
       const next = harness(container)
       next.posts.length = 0
+      next.targetOrigins.length = 0
 
-      act(() => staleOnLoad.call(next.iframe, new Event("load")))
-      expect(next.posts.filter((p) => p.type === "max:setContext")).toHaveLength(0)
-
-      act(() => next.iframe.dispatchEvent(new Event("load")))
+      act(() => stableOnLoad.call(next.iframe, new Event("load")))
       expect(next.posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
         sessionId: new URL(next.iframe.src).searchParams.get("session"),
         tenant: "tenant-b",
       })
+      expect(next.targetOrigins.at(-1)).toBe(OTHER_ORIGIN)
     } finally {
       addSpy.mockRestore()
     }
