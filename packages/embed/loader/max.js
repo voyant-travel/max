@@ -45,6 +45,13 @@
   var WIDE_W = 640
   var Z = 2147483600
   var PROTOCOL_VERSION = 1
+  // Bounds mirror the TS `normalizeHostContext` so the loader and React paths
+  // normalise identically (id/label length caps, primitive-only meta bag).
+  var MAX_ID_LEN = 512
+  var MAX_LABEL_LEN = 200
+  var MAX_META_KEYS = 32
+  var MAX_MSGID_LEN = 200
+  var FRESHNESS_MS = 30000
   // Panel spans nearly the full viewport height: 16px top margin + 88px below
   // (clears the 56px launcher + gap). Matches the taller Figma panel.
   var PANEL_H = "calc(100vh - 104px)"
@@ -98,6 +105,7 @@
     layout: "normal",
     seenIds: {},
     seenOrder: [],
+    modal: null,
   }
 
   function makeId() {
@@ -128,11 +136,13 @@
     return msg
   }
 
-  // Bounded replay guard: reject duplicate msgIds and stale timestamps.
+  // Bounded replay guard: reject duplicate msgIds and stale/malformed timestamps.
+  // Mirrors the TS receiver: finite, strictly-positive ts within the freshness
+  // window (a NaN/0 ts never bypasses the check) and a bounded, non-empty msgId.
   function replayAccept(msgId, ts) {
-    if (typeof msgId !== "string" || !msgId) return false
-    if (typeof ts !== "number") return false
-    if (Math.abs(Date.now() - ts) > 30000) return false
+    if (typeof msgId !== "string" || !msgId || msgId.length > MAX_MSGID_LEN) return false
+    if (typeof ts !== "number" || !isFinite(ts) || ts <= 0) return false
+    if (Math.abs(Date.now() - ts) > FRESHNESS_MS) return false
     if (state.seenIds[msgId]) return false
     state.seenIds[msgId] = 1
     state.seenOrder.push(msgId)
@@ -161,18 +171,42 @@
     return d
   }
 
+  // Primitive-only metadata bag (mirrors TS `normalizeMeta`): keeps up to
+  // MAX_META_KEYS string/number/boolean/null entries, drops nested objects/fns.
+  function normalizeMeta(input) {
+    if (!input || typeof input !== "object") return null
+    var out = {}
+    var n = 0
+    for (var k in input) {
+      if (!Object.prototype.hasOwnProperty.call(input, k)) continue
+      if (n >= MAX_META_KEYS) break
+      var v = input[k]
+      if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+        out[k] = v
+        n++
+      }
+    }
+    return n > 0 ? out : null
+  }
+
+  // Mirror of TS `normalizeHostContext`: closed entity-type set, trimmed &
+  // length-bounded id/label, primitive-only meta, route/subView/version/capturedAt.
   function normalizeContext(input) {
     if (!input || typeof input !== "object") return null
     if (!ENTITY_TYPES[input.type]) return null
     var id = typeof input.id === "string" ? input.id.trim() : ""
-    if (!id) return null
+    if (!id || id.length > MAX_ID_LEN) return null
     var out = { type: input.type, id: id }
     out.label =
-      typeof input.label === "string" && input.label.trim() ? input.label.trim() : id
+      typeof input.label === "string" && input.label.trim()
+        ? input.label.trim().slice(0, MAX_LABEL_LEN)
+        : id
     if (typeof input.route === "string" && input.route) out.route = input.route
     if (typeof input.subView === "string" && input.subView) out.subView = input.subView
     if (typeof input.version === "number" && isFinite(input.version)) out.version = input.version
     if (typeof input.capturedAt === "string" && input.capturedAt) out.capturedAt = input.capturedAt
+    var meta = normalizeMeta(input.meta)
+    if (meta) out.meta = meta
     return out
   }
 
@@ -431,10 +465,128 @@
       : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>'
   }
 
+  // ---- Modal a11y for the expanded/full-page panel -----------------------
+  // Mirrors the React `focus-trap` helper: isolate the background (inert +
+  // aria-hidden), move focus into the dialog, trap Tab, close on Escape, and
+  // return focus on exit.
+
+  var FOCUSABLE =
+    'a[href],area[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),' +
+    'select:not([disabled]),textarea:not([disabled]),iframe,[tabindex]:not([tabindex="-1"])'
+
+  function getFocusable(container) {
+    var list = []
+    var nodes = container.querySelectorAll(FOCUSABLE)
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i]
+      if (el.getAttribute("aria-hidden") === "true") continue
+      var style = null
+      try {
+        style = window.getComputedStyle(el)
+      } catch (e) {
+        /* jsdom / detached */
+      }
+      if (style && style.display === "none") continue
+      list.push(el)
+    }
+    return list
+  }
+
+  function trapTab(container, event) {
+    var focusable = getFocusable(container)
+    if (focusable.length === 0) {
+      event.preventDefault()
+      container.focus()
+      return
+    }
+    var first = focusable[0]
+    var last = focusable[focusable.length - 1]
+    var active = document.activeElement
+    if (event.shiftKey) {
+      if (active === first || !container.contains(active)) {
+        event.preventDefault()
+        last.focus()
+      }
+    } else if (active === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  function isolateBackground(target) {
+    var changed = []
+    var node = target
+    var body = document.body
+    while (node && node !== body && node.parentElement) {
+      var parent = node.parentElement
+      var children = parent.children
+      for (var i = 0; i < children.length; i++) {
+        var sib = children[i]
+        if (sib === node) continue
+        if (sib.hasAttribute("inert")) continue
+        sib.setAttribute("inert", "")
+        sib.setAttribute("aria-hidden", "true")
+        sib.setAttribute("data-max-inert", "")
+        changed.push(sib)
+      }
+      node = parent
+    }
+    return {
+      restore: function () {
+        for (var i = 0; i < changed.length; i++) {
+          changed[i].removeAttribute("inert")
+          changed[i].removeAttribute("aria-hidden")
+          changed[i].removeAttribute("data-max-inert")
+        }
+      },
+    }
+  }
+
+  function enterModal(panel) {
+    if (state.modal && state.modal.active) return
+    panel.setAttribute("aria-modal", "true")
+    var previous = document.activeElement
+    var isolated = isolateBackground(panel)
+    var onKey = function (e) {
+      if (e.key === "Escape") {
+        e.stopPropagation()
+        applyLayout("normal")
+      } else if (e.key === "Tab") {
+        trapTab(panel, e)
+      }
+    }
+    panel.addEventListener("keydown", onKey)
+    state.modal = { active: true, panel: panel, previous: previous, isolated: isolated, onKey: onKey }
+    try {
+      panel.focus()
+    } catch (e) {
+      /* detached */
+    }
+  }
+
+  function exitModal() {
+    var m = state.modal
+    if (!m || !m.active) return
+    m.panel.removeAttribute("aria-modal")
+    m.panel.removeEventListener("keydown", m.onKey)
+    m.isolated.restore()
+    if (m.previous && typeof m.previous.focus === "function") {
+      try {
+        m.previous.focus()
+      } catch (e) {
+        /* previously-focused node may be gone */
+      }
+    }
+    state.modal = null
+  }
+
   function ensurePanel() {
     if (state.panelEl) return state.panelEl
     ensureStyles()
     var panel = document.createElement("div")
+    panel.setAttribute("role", "dialog")
+    panel.setAttribute("aria-label", "Max by Voyant")
+    panel.setAttribute("tabindex", "-1")
     panel.style.cssText = [
       "position:fixed",
       "right:20px",
@@ -536,9 +688,15 @@
       p.style.maxWidth = "calc(100vw - 40px)"
       p.style.transformOrigin = "100% 100%"
     }
+    // Expanded is a modal dialog: enter/exit focus isolation accordingly.
+    if (layout === "expanded") enterModal(p)
+    else exitModal()
     syncControls()
-    // Echo the applied layout back to the iframe (host↔iframe round trip).
-    postToIframe(envelope("max:setLayout", { layout: layout }))
+    // Echo the applied layout back to the iframe (host↔iframe round trip) — but
+    // only when it actually changed. This is idempotent: an echoing peer that
+    // reflects our `max:setLayout` back lands on the same layout, so we don't
+    // echo again and the loop stops (no ping-pong).
+    if (changed) postToIframe(envelope("max:setLayout", { layout: layout }))
     if (changed && typeof state.onLayoutChange === "function") state.onLayoutChange(layout)
   }
 
@@ -697,6 +855,7 @@
   }
 
   function destroy() {
+    exitModal()
     if (state.observer) state.observer.disconnect()
     if (state.msgListener) window.removeEventListener("message", state.msgListener)
     if (state.launcherEl) state.launcherEl.remove()

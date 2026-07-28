@@ -287,6 +287,104 @@ describe("MaxLauncher — layout round trips & controls", () => {
   })
 })
 
+describe("MaxLauncher — lazy initial context delivery", () => {
+  it("delivers the initial context exactly once when a closed launcher is first opened (no requestContext)", () => {
+    const { container, getByLabelText } = render(
+      <MaxLauncher token="t" embedOrigin={ORIGIN} tenant="acme" context={product} />,
+    )
+    // Closed launcher mounts no iframe yet.
+    expect(container.querySelector("iframe")).toBeNull()
+
+    act(() => {
+      getByLabelText("Open Max chat").click()
+    })
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement
+    const cw = iframe.contentWindow as Window
+    const posts: Array<Record<string, unknown>> = []
+    cw.postMessage = ((m: unknown) => {
+      posts.push(m as Record<string, unknown>)
+    }) as typeof cw.postMessage
+
+    // The iframe finishes loading — the initial context must arrive now, driven
+    // by the mount/load and NOT by the iframe sending max:requestContext.
+    act(() => {
+      iframe.dispatchEvent(new Event("load"))
+    })
+    const delivered = posts.filter((p) => p.type === "max:setContext")
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]).toMatchObject({ context: { type: "product", id: "PRD-42" } })
+
+    // A spurious second load must not re-deliver to the same window.
+    act(() => {
+      iframe.dispatchEvent(new Event("load"))
+    })
+    expect(posts.filter((p) => p.type === "max:setContext")).toHaveLength(1)
+
+    // Opening did not remount anything else.
+    expect(container.querySelector("iframe")).toBe(iframe)
+  })
+})
+
+describe("MaxLauncher — idempotent layout round trips", () => {
+  it("does not re-echo an already-applied layout (breaks request/echo ping-pong)", () => {
+    const onLayoutChange = vi.fn()
+    const { container } = render(
+      <MaxLauncher token="t" embedOrigin={ORIGIN} defaultOpen onLayoutChange={onLayoutChange} />,
+    )
+    const { cw, posts, sessionId } = harness(container)
+
+    postFromIframe(cw, sessionId, "max:requestLayout", { layout: "wide" })
+    expect(posts.filter((p) => p.type === "max:setLayout")).toHaveLength(1)
+
+    // An echoing peer reflects our max:setLayout(wide) back. We're already wide,
+    // so we must NOT echo again — otherwise the two sides ping-pong forever.
+    postFromIframe(cw, sessionId, "max:setLayout", { layout: "wide" })
+    expect(posts.filter((p) => p.type === "max:setLayout")).toHaveLength(1)
+    expect(onLayoutChange).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("MaxLauncher — expanded modal accessibility", () => {
+  it("makes the expanded panel a modal dialog, isolates the background, moves focus, and restores on Escape", async () => {
+    const bg = document.createElement("div")
+    bg.id = "host-bg"
+    bg.innerHTML = "<button>host action</button>"
+    document.body.appendChild(bg)
+
+    const onLayoutChange = vi.fn()
+    const { container, findByLabelText } = render(
+      <MaxLauncher token="t" embedOrigin={ORIGIN} defaultOpen onLayoutChange={onLayoutChange} />,
+    )
+    const panel = container.querySelector('[role="dialog"]') as HTMLElement
+    expect(panel).toBeTruthy()
+    // Docked (normal) layout is a labelled dialog but not modal.
+    expect(panel.getAttribute("aria-label")).toBe("Max by Voyant")
+    expect(panel.getAttribute("aria-modal")).toBeNull()
+
+    const expandBtn = await findByLabelText("Expand Max to full page")
+    act(() => {
+      expandBtn.click()
+    })
+
+    // Modal semantics + background isolation + focus into the dialog.
+    expect(panel.getAttribute("aria-modal")).toBe("true")
+    expect(bg.hasAttribute("inert")).toBe(true)
+    expect(bg.getAttribute("aria-hidden")).toBe("true")
+    expect(document.activeElement).toBe(panel)
+
+    // Escape restores to normal and tears down the modal isolation.
+    act(() => {
+      panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+    })
+    expect(onLayoutChange).toHaveBeenLastCalledWith("normal")
+    expect(panel.getAttribute("aria-modal")).toBeNull()
+    expect(bg.hasAttribute("inert")).toBe(false)
+    expect(bg.getAttribute("aria-hidden")).toBeNull()
+
+    document.body.removeChild(bg)
+  })
+})
+
 describe("MaxApp — navigation without remount", () => {
   it("mirrors an iframe navigation into the host URL without changing the iframe", () => {
     const onRouteChange = vi.fn()

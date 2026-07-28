@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 
+import { isolateBackground, trapTab } from "./focus-trap.js"
 import { LoadingOverlay, resolveDark } from "./loading.js"
 import {
   createEnvelope,
@@ -62,6 +63,9 @@ export function MaxLauncher({
   const [entered, setEntered] = useState(defaultOpen)
   const [loaded, setLoaded] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  // The element focus should return to when the modal (expanded) panel closes.
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
   const [sessionId] = useState(createSessionId)
   const scope = useMemo(
@@ -76,6 +80,10 @@ export function MaxLauncher({
   onLayoutChangeRef.current = onLayoutChange
   const scopeRef = useRef(scope)
   scopeRef.current = scope
+  // Always-current layout, so the idempotence check in `applyLayout` works even
+  // from the message-listener effect's stale render closure.
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
 
   function postToIframe(type: "max:setLayout", payload: Record<string, unknown>) {
     const target = iframeRef.current?.contentWindow
@@ -94,12 +102,17 @@ export function MaxLauncher({
   // rather than here, so we never call a parent setState during render.
   function applyLayout(next: MaxLayout, opts: { echo?: boolean; ensureOpen?: boolean } = {}) {
     const { echo = true, ensureOpen = false } = opts
+    // Idempotent: only echo when the layout actually changed. This is what breaks
+    // a request/echo ping-pong — an echoing peer that reflects our `max:setLayout`
+    // back lands on the same layout, so we don't echo again and the loop stops.
+    const changed = next !== layoutRef.current
+    layoutRef.current = next
     setLayout(next)
     if (ensureOpen || next !== "normal") {
       setMounted(true)
       setOpen(true)
     }
-    if (echo) postToIframe("max:setLayout", { layout: next })
+    if (echo && changed) postToIframe("max:setLayout", { layout: next })
   }
 
   // Notify the host of layout changes from an effect — skips the initial render
@@ -109,6 +122,51 @@ export function MaxLauncher({
     if (notifiedLayout.current === layout) return
     notifiedLayout.current = layout
     onLayoutChangeRef.current?.(layout)
+  }, [layout])
+
+  // Modal a11y for the expanded/full-page layout: while expanded the panel is a
+  // `role="dialog" aria-modal` surface, so we (1) isolate the background (inert +
+  // aria-hidden), (2) move focus into the panel, (3) trap Tab, (4) close on
+  // Escape, and (5) return focus to the previously-focused element on exit.
+  useEffect(() => {
+    if (layout !== "expanded") return
+    const panel = panelRef.current
+    if (!panel) return
+    restoreFocusRef.current =
+      typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null
+    const isolated = isolateBackground(panel)
+    // Move focus into the dialog. Focusing the container (tabIndex -1) is robust
+    // and lets the first Tab land on the first control; the trap wraps at the ends.
+    try {
+      panel.focus()
+    } catch {
+      /* detached */
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation()
+        applyLayout("normal") // restore; the cleanup below returns focus
+      } else if (event.key === "Tab") {
+        trapTab(panel, event)
+      }
+    }
+    panel.addEventListener("keydown", onKeyDown)
+
+    return () => {
+      panel.removeEventListener("keydown", onKeyDown)
+      isolated.restore()
+      const toRestore = restoreFocusRef.current
+      restoreFocusRef.current = null
+      if (toRestore && typeof toRestore.focus === "function") {
+        try {
+          toRestore.focus()
+        } catch {
+          /* previously-focused node may be gone */
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout])
 
   // Drive the enter/exit animation off `open`.
@@ -139,8 +197,16 @@ export function MaxLauncher({
     return `${origin}/max/bubble?${params.toString()}`
   }, [token, origin, sessionId, tenant, audience])
 
-  useHostSync({ iframeRef, origin, theme, lang })
-  useContextChannel({ iframeRef, origin, scope, context, onContextClear, onContextRequest })
+  useHostSync({ iframeRef, origin, theme, lang, mounted })
+  useContextChannel({
+    iframeRef,
+    origin,
+    scope,
+    context,
+    mounted,
+    onContextClear,
+    onContextRequest,
+  })
 
   // In-iframe messages, validated against the protocol (strict origin + source +
   // session/tenant, replay-guarded): "Close" posts `max:close`; a canvas workflow
@@ -195,10 +261,16 @@ export function MaxLauncher({
         }}
       />
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-label={title}
+        aria-modal={expanded ? true : undefined}
+        tabIndex={-1}
         style={{
           position: "fixed",
           ...geom,
           overflow: "hidden",
+          outline: "none",
           background: "transparent",
           boxShadow: "0 24px 60px rgba(15,15,15,0.22), 0 2px 8px rgba(15,15,15,0.12)",
           zIndex: Z,

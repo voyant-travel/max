@@ -201,6 +201,43 @@ export function isSameContext(
   return a.type === b.type && a.id === b.id && (a.version ?? null) === (b.version ?? null)
 }
 
+/** Parse an ISO-8601 `capturedAt` into epoch ms, or `null` if absent/unparseable. */
+export function parseContextTimestamp(context: MaxHostContext | null | undefined): number | null {
+  if (!context || typeof context.capturedAt !== "string") return null
+  const t = Date.parse(context.capturedAt)
+  return Number.isFinite(t) ? t : null
+}
+
+/**
+ * Decide whether an `incoming` context is *strictly older* than the `current`
+ * one — i.e. an out-of-order / superseded update that a receiver must reject to
+ * keep its state monotonic. Ordering signals, in priority order:
+ *
+ *   1. For the **same entity**, the per-entity `version` counter is authoritative
+ *      (the host bumps it on every change).
+ *   2. Otherwise (or when versions are absent), the `capturedAt` wall-clock.
+ *
+ * When neither side carries an ordering signal we cannot prove staleness, so the
+ * update is *not* considered out-of-order (the caller applies it). Same-revision
+ * re-sends are handled by {@link isSameContext} (idempotence), not here.
+ */
+export function isContextOutOfOrder(
+  incoming: MaxHostContext,
+  current: MaxHostContext | null | undefined,
+): boolean {
+  if (!current) return false
+  const sameEntity = incoming.type === current.type && incoming.id === current.id
+  if (sameEntity && typeof incoming.version === "number" && typeof current.version === "number") {
+    if (incoming.version !== current.version) return incoming.version < current.version
+    // equal version → same revision, not out-of-order (idempotent elsewhere)
+    return false
+  }
+  const it = parseContextTimestamp(incoming)
+  const ct = parseContextTimestamp(current)
+  if (it != null && ct != null) return it < ct
+  return false
+}
+
 /**
  * Derive the display status of a snapshot's pinned context against the live host
  * context. Never mutates or replaces the pinned context — purely descriptive.

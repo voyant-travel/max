@@ -56,11 +56,15 @@ export function useHostSync({
   origin,
   theme: themeProp,
   lang: langProp,
+  mounted = true,
 }: {
   iframeRef: RefObject<HTMLIFrameElement | null>
   origin: string
   theme?: MaxTheme
   lang?: string
+  /** See {@link useContextChannel} — re-attaches the `load` push for a lazily
+   *  mounted launcher iframe. Defaults to `true`. */
+  mounted?: boolean
 }) {
   // Latest values we've sent to the iframe — to dedupe and to push on
   // re-mount/iframe-load.
@@ -95,7 +99,7 @@ export function useHostSync({
     node.addEventListener("load", onLoad)
     return () => node.removeEventListener("load", onLoad)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [mounted])
 
   // Explicit prop changes — push immediately when the caller controls the axis.
   useEffect(() => {
