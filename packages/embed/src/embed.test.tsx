@@ -313,6 +313,47 @@ describe("useContextChannel via MaxChat", () => {
   })
 })
 
+describe("useHostSync origin transitions", () => {
+  it("rebinds load and auto-detect updates to the new normalized origin", async () => {
+    document.documentElement.className = "light"
+    document.documentElement.lang = "en"
+    const { container, rerender } = render(
+      <MaxChat token="t" embedOrigin={`${ORIGIN}/`} context={product} />,
+    )
+    const first = harness(container)
+    act(() => first.iframe.dispatchEvent(new Event("load")))
+    first.posts.length = 0
+
+    act(() => rerender(<MaxChat token="t" embedOrigin={`${OTHER_ORIGIN}/`} context={product} />))
+    const next = harness(container)
+    act(() => next.iframe.dispatchEvent(new Event("load")))
+    expect(next.posts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "max:setTheme", theme: "light" }),
+        expect.objectContaining({ type: "max:setLang", lang: "en" }),
+      ]),
+    )
+    next.posts.length = 0
+
+    act(() => {
+      document.documentElement.className = "dark"
+      document.documentElement.lang = "fr"
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(next.posts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "max:setTheme", theme: "dark" }),
+        expect.objectContaining({ type: "max:setLang", lang: "fr" }),
+      ]),
+    )
+    expect(first.posts).toHaveLength(0)
+
+    document.documentElement.className = ""
+    document.documentElement.removeAttribute("lang")
+  })
+})
+
 describe("MaxLauncher — layout round trips & controls", () => {
   it("expands and restores via the on-panel control, echoing to the iframe", async () => {
     const onLayoutChange = vi.fn()

@@ -13,7 +13,7 @@ Run from the repo root unless noted.
 | Command | Result |
 | --- | --- |
 | `pnpm install --frozen-lockfile` | ✅ lockfile unchanged (no new deps added) |
-| `pnpm --filter @voyant-travel/max-embed test` | ✅ **132 tests passed** (7 files: `context`, `context-receiver`, `protocol`, `embed`, `focus-trap`, `loader`, package-root exports) |
+| `pnpm --filter @voyant-travel/max-embed test` | ✅ **133 tests passed** (7 files: `context`, `context-receiver`, `protocol`, `embed`, `focus-trap`, `loader`, package-root exports) |
 | `pnpm --filter @voyant-travel/max-embed check-types` | ✅ `tsc --noEmit`, no errors |
 | `pnpm exec biome check packages/embed examples/context-demo` | ✅ clean (blanket `examples` exclusion removed; only the HTML fixture is narrowly excluded) |
 | `pnpm --filter @voyant-travel/max-embed build` | ✅ `dist/` emitted incl. `context-receiver`, `focus-trap` |
@@ -85,3 +85,7 @@ Normalized embed-origin changes are also covered as security boundaries for all
 three React embeds: they mint a new session, reject pre-load delivery, rotate
 replay listeners, and deliver the current context only after the new origin's
 iframe document loads.
+Host theme/language synchronization also rebinds its load listener and
+auto-detect observer to the new normalized origin; a regression switches origin,
+reloads, then mutates `<html>` theme/language and verifies only the new iframe
+receives the updates.
