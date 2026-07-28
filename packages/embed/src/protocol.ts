@@ -256,11 +256,12 @@ export class ReplayGuard {
 
   /** Returns `true` and records the id when the message is fresh & unseen. */
   accept(msgId: string, ts: number, at: number = now()): boolean {
-    if (typeof msgId !== "string" || msgId.length === 0) return false
-    if (typeof ts !== "number" || !Number.isFinite(ts)) return false
-    // Reject stale or future-dated messages. `at === 0`/`ts === 0` fallbacks
-    // (no clock) skip the window check but still dedupe by id.
-    if (at !== 0 && ts !== 0 && Math.abs(at - ts) > this.freshnessMs) return false
+    if (typeof msgId !== "string" || msgId.length === 0 || msgId.length > MAX_MSGID_LEN)
+      return false
+    if (typeof ts !== "number" || !Number.isFinite(ts) || ts <= 0) return false
+    // Reject stale or future-dated messages. There is deliberately no zero-clock
+    // escape hatch: an envelope without a real positive timestamp is untrusted.
+    if (!Number.isFinite(at) || at <= 0 || Math.abs(at - ts) > this.freshnessMs) return false
     if (this.seen.has(msgId)) return false
     this.seen.add(msgId)
     this.order.push(msgId)
@@ -302,6 +303,8 @@ export type ValidateFailure =
   | "session-mismatch"
   | "tenant-mismatch"
   | "audience-mismatch"
+  | "bad-msgid"
+  | "stale-ts"
   | "replay"
   | "bad-context"
   | "bad-path"
@@ -412,11 +415,27 @@ export function validateInbound(
   const scopeFailure = validateEnvelopeScope(raw, opts.scope)
   if (scopeFailure) return { ok: false, reason: scopeFailure }
 
-  // (7) replay / freshness
+  // (7) identity + freshness are mandatory for every enveloped message, even
+  // when a caller does not supply a replay cache.
+  const msgId = raw.msgId
+  if (typeof msgId !== "string" || msgId.length === 0 || msgId.length > MAX_MSGID_LEN)
+    return { ok: false, reason: "bad-msgid" }
+  const ts = raw.ts
+  const at = opts.at ?? now()
+  if (
+    typeof ts !== "number" ||
+    !Number.isFinite(ts) ||
+    ts <= 0 ||
+    !Number.isFinite(at) ||
+    at <= 0 ||
+    Math.abs(at - ts) > DEFAULT_FRESHNESS_MS
+  )
+    return { ok: false, reason: "stale-ts" }
+
+  // A supplied cache additionally enforces duplicate detection and can use a
+  // narrower caller-selected freshness window.
   if (opts.replay) {
-    const msgId = typeof raw.msgId === "string" ? raw.msgId : ""
-    const ts = typeof raw.ts === "number" ? raw.ts : 0
-    if (!opts.replay.accept(msgId, ts, opts.at)) return { ok: false, reason: "replay" }
+    if (!opts.replay.accept(msgId, ts, at)) return { ok: false, reason: "replay" }
   }
 
   // strict per-type payload validation

@@ -136,6 +136,17 @@ describe("validateInbound — entity type on context payloads", () => {
 })
 
 describe("validateInbound — replay guard", () => {
+  it("rejects zero timestamps and invalid message ids without a replay cache", () => {
+    expect(validateInbound(ev({ ...inbound("max:close"), ts: 0 }), baseOpts())).toEqual({
+      ok: false,
+      reason: "stale-ts",
+    })
+    expect(validateInbound(ev({ ...inbound("max:close"), msgId: "" }), baseOpts())).toEqual({
+      ok: false,
+      reason: "bad-msgid",
+    })
+  })
+
   it("rejects a duplicated msgId (replay of a captured message)", () => {
     const guard = new ReplayGuard()
     const msg = inbound("max:close")
@@ -149,7 +160,7 @@ describe("validateInbound — replay guard", () => {
     const guard = new ReplayGuard(256, 1000)
     const msg = { ...inbound("max:close"), ts: 1_000 }
     const r = validateInbound(ev(msg), { ...baseOpts(), replay: guard, at: 1_000_000 })
-    expect(r).toEqual({ ok: false, reason: "replay" })
+    expect(r).toEqual({ ok: false, reason: "stale-ts" })
   })
 })
 
