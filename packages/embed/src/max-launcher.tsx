@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
+import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { isolateBackground, trapTab } from "./focus-trap.js"
 import { LoadingOverlay, resolveDark } from "./loading.js"
@@ -80,15 +80,19 @@ export function MaxLauncher({
 
   // Keep the latest layout-change callback without re-subscribing listeners.
   const onLayoutChangeRef = useRef(onLayoutChange)
-  onLayoutChangeRef.current = onLayoutChange
   const scopeRef = useRef(scope)
-  scopeRef.current = scope
   const originRef = useRef(origin)
-  originRef.current = origin
   // Always-current layout, so the idempotence check in `applyLayout` works even
   // from the message-listener effect's stale render closure.
   const layoutRef = useRef(layout)
-  layoutRef.current = layout
+  // Publish listener-visible protocol state only after this launcher render is
+  // committed. Suspended or abandoned renders must not retarget the live iframe.
+  useLayoutEffect(() => {
+    onLayoutChangeRef.current = onLayoutChange
+    scopeRef.current = scope
+    originRef.current = origin
+    layoutRef.current = layout
+  })
 
   function postToIframe(type: "max:setLayout", payload: Record<string, unknown>) {
     // A scope change navigates the existing WindowProxy. Until the replacement

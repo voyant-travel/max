@@ -529,6 +529,82 @@ describe("MaxLauncher — layout round trips & controls", () => {
     )
     expect(onLayoutChange).not.toHaveBeenCalled()
   })
+
+  it("keeps launcher protocol refs on the committed scope during suspension", () => {
+    const never = new Promise<void>(() => {})
+    const committedLayoutChange = vi.fn()
+    const speculativeLayoutChange = vi.fn()
+    function BlockedRender({ blocked }: { blocked: boolean }) {
+      if (blocked) throw never
+      return null
+    }
+    function ConcurrentLauncher({
+      blocked,
+      token,
+      tenant,
+      onLayoutChange,
+    }: {
+      blocked: boolean
+      token: string
+      tenant: string
+      onLayoutChange: (layout: "normal" | "wide" | "expanded") => void
+    }) {
+      return (
+        <Suspense fallback={null}>
+          <MaxLauncher
+            token={token}
+            tenant={tenant}
+            embedOrigin={token === "a" ? ORIGIN : OTHER_ORIGIN}
+            defaultOpen
+            onLayoutChange={onLayoutChange}
+          />
+          <BlockedRender blocked={blocked} />
+        </Suspense>
+      )
+    }
+
+    const { container, rerender } = render(
+      <ConcurrentLauncher
+        blocked={false}
+        token="a"
+        tenant="tenant-a"
+        onLayoutChange={committedLayoutChange}
+      />,
+    )
+    const current = harness(container)
+    act(() => current.iframe.dispatchEvent(new Event("load")))
+    current.posts.length = 0
+    current.targetOrigins.length = 0
+
+    act(() => {
+      startTransition(() =>
+        rerender(
+          <ConcurrentLauncher
+            blocked
+            token="b"
+            tenant="tenant-b"
+            onLayoutChange={speculativeLayoutChange}
+          />,
+        ),
+      )
+    })
+    postFromIframe(
+      current.cw,
+      current.sessionId,
+      "max:requestLayout",
+      { layout: "wide" },
+      { tenant: "tenant-a" },
+    )
+
+    expect(committedLayoutChange).toHaveBeenCalledWith("wide")
+    expect(speculativeLayoutChange).not.toHaveBeenCalled()
+    expect(current.posts.filter((post) => post.type === "max:setLayout").at(-1)).toMatchObject({
+      sessionId: current.sessionId,
+      tenant: "tenant-a",
+      layout: "wide",
+    })
+    expect(current.targetOrigins.at(-1)).toBe(ORIGIN)
+  })
 })
 
 describe("MaxApp — scoped route transitions", () => {
@@ -558,6 +634,60 @@ describe("MaxApp — scoped route transitions", () => {
       tenant: "tenant-b",
       path: "/c/new",
     })
+  })
+
+  it("keeps the committed route scope during a suspended transition", () => {
+    const never = new Promise<void>(() => {})
+    const onRouteChange = vi.fn()
+    function BlockedRender({ blocked }: { blocked: boolean }) {
+      if (blocked) throw never
+      return null
+    }
+    function ConcurrentApp({
+      blocked,
+      token,
+      tenant,
+    }: {
+      blocked: boolean
+      token: string
+      tenant: string
+    }) {
+      return (
+        <Suspense fallback={null}>
+          <MaxApp
+            token={token}
+            tenant={tenant}
+            embedOrigin={token === "a" ? ORIGIN : OTHER_ORIGIN}
+            basePath="/max"
+            onRouteChange={onRouteChange}
+          />
+          <BlockedRender blocked={blocked} />
+        </Suspense>
+      )
+    }
+
+    window.history.replaceState(null, "", "/max")
+    const { container, rerender } = render(
+      <ConcurrentApp blocked={false} token="a" tenant="tenant-a" />,
+    )
+    const current = harness(container)
+    act(() => current.iframe.dispatchEvent(new Event("load")))
+
+    act(() => {
+      startTransition(() => rerender(<ConcurrentApp blocked token="b" tenant="tenant-b" />))
+    })
+    postFromIframe(
+      current.cw,
+      current.sessionId,
+      "max:navigate",
+      { path: "/c/committed" },
+      {
+        tenant: "tenant-a",
+      },
+    )
+
+    expect(window.location.pathname).toBe("/max/c/committed")
+    expect(onRouteChange).toHaveBeenCalledWith("/c/committed")
   })
 })
 

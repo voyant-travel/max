@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef } from "react"
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react"
 
 import { createEnvelope, type MaxSessionScope, ReplayGuard, validateInbound } from "./protocol.js"
 
@@ -38,20 +38,24 @@ export function useRouteSync({
   onRouteChange?: (path: string) => void
 }) {
   const scopeRef = useRef(scope)
-  scopeRef.current = scope
   // Consulted by listener closures from the previous committed render too.
   // Passive-effect cleanup runs after paint, so a popstate can otherwise land
   // in that narrow window and post the new scope through an old `ready=true`
   // closure to the document being replaced.
   const readyRef = useRef(ready)
-  readyRef.current = ready
   // The app-relative path most recently replayed *into* the iframe from a
   // popstate. While the iframe settles on it we suppress the history echo.
   const replayedToIframe = useRef<string | null>(null)
 
   // Keep the latest callback without re-subscribing the message listener.
   const onRouteChangeRef = useRef(onRouteChange)
-  onRouteChangeRef.current = onRouteChange
+  // Event listeners belong to the committed iframe. A suspended concurrent
+  // render must not publish speculative scope/readiness into those listeners.
+  useLayoutEffect(() => {
+    scopeRef.current = scope
+    readyRef.current = ready
+    onRouteChangeRef.current = onRouteChange
+  })
 
   useEffect(() => {
     const guard = new ReplayGuard()
