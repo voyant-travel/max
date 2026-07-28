@@ -13,7 +13,7 @@ Run from the repo root unless noted.
 | Command | Result |
 | --- | --- |
 | `pnpm install --frozen-lockfile` | ✅ lockfile unchanged (no new deps added) |
-| `pnpm --filter @voyant-travel/max-embed test` | ✅ **122 tests passed** (7 files: `context`, `context-receiver`, `protocol`, `embed`, `focus-trap`, `loader`, package-root exports) |
+| `pnpm --filter @voyant-travel/max-embed test` | ✅ **129 tests passed** (7 files: `context`, `context-receiver`, `protocol`, `embed`, `focus-trap`, `loader`, package-root exports) |
 | `pnpm --filter @voyant-travel/max-embed check-types` | ✅ `tsc --noEmit`, no errors |
 | `pnpm exec biome check packages/embed examples/context-demo` | ✅ clean (blanket `examples` exclusion removed; only the HTML fixture is narrowly excluded) |
 | `pnpm --filter @voyant-travel/max-embed build` | ✅ `dist/` emitted incl. `context-receiver`, `focus-trap` |
@@ -77,3 +77,7 @@ exports compile, prototype-shaped loader keys are safe, and pre-existing host
 runtime was unchanged; its claims were narrowed to identify the fixture as an
 illustrative hand-written peer, so the existing browser screenshots remain the
 accurate visual evidence for the real host components and receiver harness.
+The final scope-transition pass additionally verifies inline loader teardown and
+inline-to-bubble tenant isolation, fresh React sessions/replay guards for token,
+tenant, and audience changes, load-gated context delivery, and strict bounded
+revision-marker normalization.

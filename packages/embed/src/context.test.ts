@@ -82,6 +82,29 @@ describe("normalizeHostContext", () => {
     expect(normalizeHostContext("booking")).toBeNull()
     expect(normalizeHostContext(undefined)).toBeNull()
   })
+
+  it("rejects invalid supplied revision markers instead of silently omitting them", () => {
+    const base = { type: "booking", id: "B-1" }
+    for (const version of [-1, 1.5, Number.NaN, "2", null]) {
+      expect(normalizeHostContext({ ...base, version })).toBeNull()
+    }
+    for (const capturedAt of ["", "not-a-date", 123, null]) {
+      expect(normalizeHostContext({ ...base, capturedAt })).toBeNull()
+    }
+  })
+
+  it("bounds route, sub-view, metadata keys and metadata strings", () => {
+    const out = normalizeHostContext({
+      type: "booking",
+      id: "B-1",
+      route: "r".repeat(3000),
+      subView: "s".repeat(300),
+      meta: { ["k".repeat(129)]: "discard", note: "v".repeat(3000) },
+    })
+    expect(out?.route).toHaveLength(2048)
+    expect(out?.subView).toHaveLength(128)
+    expect(out?.meta).toEqual({ note: "v".repeat(2048) })
+  })
 })
 
 describe("isSameContext / contextKey", () => {

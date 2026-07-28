@@ -67,7 +67,8 @@ export function MaxLauncher({
   // The element focus should return to when the modal (expanded) panel closes.
   const restoreFocusRef = useRef<HTMLElement | null>(null)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
-  const [sessionId] = useState(createSessionId)
+  const sessionId = useMemo(createSessionId, [token, tenant, audience])
+  useEffect(() => setLoaded(false), [sessionId])
   const scope = useMemo(
     () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
     [sessionId, tenant, audience],
@@ -235,7 +236,7 @@ export function MaxLauncher({
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [origin])
+  }, [origin, sessionId, tenant, audience])
 
   const geom = panelGeometry(layout, { bottom, right })
   const expanded = layout === "expanded"

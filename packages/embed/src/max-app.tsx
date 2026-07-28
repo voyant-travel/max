@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { LoadingOverlay, resolveDark } from "./loading.js"
 import { createSessionId } from "./protocol.js"
@@ -42,7 +42,8 @@ export function MaxApp({
   const [loaded, setLoaded] = useState(false)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
   const dark = useMemo(() => resolveDark({ theme, lang }), [theme, lang])
-  const [sessionId] = useState(createSessionId)
+  const sessionId = useMemo(createSessionId, [token, tenant, audience])
+  useEffect(() => setLoaded(false), [sessionId])
   const scope = useMemo(
     () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
     [sessionId, tenant, audience],

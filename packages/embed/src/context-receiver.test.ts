@@ -234,7 +234,8 @@ describe("MaxContextReceiver — clear / ordering / idempotence", () => {
   it("orders and re-verifies same-entity updates that omit version", async () => {
     const verify = vi.fn<MaxContextVerifier>(() => ({ ok: true }))
     const r = makeReceiver({ verify })
-    const first = { ...booking, version: undefined, capturedAt: "2026-07-28T10:00:00.000Z" }
+    const bookingWithoutVersion = { type: booking.type, id: booking.id, label: booking.label }
+    const first = { ...bookingWithoutVersion, capturedAt: "2026-07-28T10:00:00.000Z" }
     const next = { ...first, label: "updated", capturedAt: "2026-07-28T10:01:00.000Z" }
     await r.ingest(ev(first))
     expect((await r.ingest(ev(next))).ok).toBe(true)
@@ -250,7 +251,7 @@ describe("MaxContextReceiver — clear / ordering / idempotence", () => {
   it("falls back to envelope timestamps for changed contexts with no revision marker", async () => {
     const verify = vi.fn<MaxContextVerifier>(() => ({ ok: true }))
     const r = makeReceiver({ verify })
-    const unversioned = { ...booking, version: undefined, capturedAt: undefined }
+    const unversioned = { type: booking.type, id: booking.id, label: booking.label }
     await r.ingest(ev(unversioned, { ts: NOW - 1_000 }))
     await r.ingest(ev({ ...unversioned, label: "new" }, { ts: NOW }))
     expect(verify).toHaveBeenCalledTimes(2)

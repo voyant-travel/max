@@ -131,11 +131,17 @@ type MaxHostContext = {
   label: string       // human-readable
   route?: string      // host deep-link
   subView?: string    // e.g. "itinerary", "payments"
-  version?: number    // bumped on each change
-  capturedAt?: string // ISO-8601
+  version?: number    // non-negative integer; bumped on each change
+  capturedAt?: string // parseable ISO-8601/date string
   meta?: Record<string, string | number | boolean | null>
 }
 ```
+
+Supplied invalid `version` or `capturedAt` markers reject the entire context;
+they are never silently omitted because doing so would discard ordering
+semantics. Normalization bounds `id` (512), `label` (200), `route` (2048), and
+`subView` (128) characters. Metadata is limited to 32 primitive entries, with
+keys capped at 128 and string values capped at 2048 characters.
 
 ## Historical snapshots
 

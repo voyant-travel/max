@@ -156,9 +156,37 @@ describe("loader — context normalization parity", () => {
     ;(window as unknown as Win).Max?.setContext({ type: "toString", id: "x" })
     expect(setContextPosts()).toHaveLength(0)
   })
+
+  it("rejects invalid supplied revision markers instead of dropping them", () => {
+    boot()
+    const Max = (window as unknown as Win).Max
+    Max?.setContext({ type: "booking", id: "B-1", version: -1 })
+    Max?.setContext({ type: "booking", id: "B-1", version: 1.5 })
+    Max?.setContext({ type: "booking", id: "B-1", capturedAt: "not-a-date" })
+    expect(setContextPosts()).toHaveLength(0)
+  })
 })
 
 describe("loader — lifecycle isolation", () => {
+  it("removes an inline iframe and re-inits bubble under a fresh tenant scope", () => {
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const Max = evalLoader()
+    Max.init({ token: "a", mode: "inline", target: host, embedOrigin: ORIGIN, tenant: "tenant-a" })
+    const inline = host.querySelector("iframe") as HTMLIFrameElement
+    expect(inline).not.toBeNull()
+
+    Max.init({ token: "b", mode: "bubble", embedOrigin: ORIGIN, tenant: "tenant-b" })
+    Max.open()
+    const bubble = document.querySelector("iframe") as HTMLIFrameElement
+    expect(host.contains(inline)).toBe(false)
+    expect(document.querySelectorAll("iframe")).toHaveLength(1)
+    expect(new URL(bubble.src).searchParams.get("tenant")).toBe("tenant-b")
+    expect(new URL(bubble.src).searchParams.get("session")).not.toBe(
+      new URL(inline.src).searchParams.get("session"),
+    )
+  })
+
   it("does not leak context or scope from init A through destroy into init B", () => {
     const { Max } = boot({
       tenant: "tenant-a",

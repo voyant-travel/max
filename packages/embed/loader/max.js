@@ -50,6 +50,8 @@
   var MAX_ID_LEN = 512
   var MAX_LABEL_LEN = 200
   var MAX_META_KEYS = 32
+  var MAX_META_KEY_LEN = 128
+  var MAX_META_STRING_LEN = 2048
   var MAX_MSGID_LEN = 200
   var FRESHNESS_MS = 30000
   // Panel spans nearly the full viewport height: 16px top margin + 88px below
@@ -181,9 +183,10 @@
     for (var k in input) {
       if (!Object.prototype.hasOwnProperty.call(input, k)) continue
       if (n >= MAX_META_KEYS) break
+      if (!k || k.length > MAX_META_KEY_LEN) continue
       var v = input[k]
       if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-        out[k] = v
+        out[k] = typeof v === "string" ? v.slice(0, MAX_META_STRING_LEN) : v
         n++
       }
     }
@@ -202,10 +205,16 @@
       typeof input.label === "string" && input.label.trim()
         ? input.label.trim().slice(0, MAX_LABEL_LEN)
         : id
-    if (typeof input.route === "string" && input.route) out.route = input.route
-    if (typeof input.subView === "string" && input.subView) out.subView = input.subView
-    if (typeof input.version === "number" && isFinite(input.version)) out.version = input.version
-    if (typeof input.capturedAt === "string" && input.capturedAt) out.capturedAt = input.capturedAt
+    if (typeof input.route === "string" && input.route) out.route = input.route.slice(0, 2048)
+    if (typeof input.subView === "string" && input.subView) out.subView = input.subView.slice(0, 128)
+    if (Object.prototype.hasOwnProperty.call(input, "version")) {
+      if (typeof input.version !== "number" || !isFinite(input.version) || input.version < 0 || Math.floor(input.version) !== input.version) return null
+      out.version = input.version
+    }
+    if (Object.prototype.hasOwnProperty.call(input, "capturedAt")) {
+      if (typeof input.capturedAt !== "string" || !input.capturedAt || !isFinite(Date.parse(input.capturedAt))) return null
+      out.capturedAt = input.capturedAt
+    }
     var meta = normalizeMeta(input.meta)
     if (meta) out.meta = meta
     return out
@@ -889,6 +898,7 @@
     exitModal()
     if (state.observer) state.observer.disconnect()
     if (state.msgListener) window.removeEventListener("message", state.msgListener)
+    if (state.iframeEl) state.iframeEl.remove()
     if (state.launcherEl) state.launcherEl.remove()
     if (state.panelEl) state.panelEl.remove()
     if (state.backdropEl) state.backdropEl.remove()

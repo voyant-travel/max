@@ -54,6 +54,8 @@ export function useContextChannel({
   // Signature of the last context we actually sent — dedupes re-renders that
   // don't change the meaningful content.
   const lastSentSig = useRef<string | undefined>(undefined)
+  const scopeGeneration = `${scope.sessionId}\u0000${scope.tenant ?? ""}\u0000${scope.audience ?? ""}`
+  const activeGeneration = useRef(scopeGeneration)
   const scopeRef = useRef(scope)
   scopeRef.current = scope
   const clearRef = useRef(onContextClear)
@@ -68,6 +70,14 @@ export function useContextChannel({
   // warning and reach nothing. We defer the *first* delivery to the `load`
   // handler; only *subsequent* changes post eagerly.
   const hasLoaded = useRef(false)
+  // Credentials/scope changes navigate the iframe to a new document. Reset
+  // synchronously during render so the context-change effect cannot send the
+  // new scope/context into the previous document before that navigation loads.
+  if (activeGeneration.current !== scopeGeneration) {
+    activeGeneration.current = scopeGeneration
+    hasLoaded.current = false
+    lastSentSig.current = undefined
+  }
 
   function post(payload: Record<string, unknown> & { type: "max:setContext" }) {
     const target = iframeRef.current?.contentWindow
@@ -115,7 +125,7 @@ export function useContextChannel({
     node.addEventListener("load", onLoad)
     return () => node.removeEventListener("load", onLoad)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted])
+  }, [mounted, scopeGeneration])
 
   // iframe → host: requestContext / clearContext.
   useEffect(() => {
@@ -141,7 +151,7 @@ export function useContextChannel({
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [origin])
+  }, [origin, scopeGeneration])
 }
 
 /** Stable string identity of a context for change detection. `undefined` → `""`. */

@@ -101,7 +101,7 @@ export function useRouteSync({
       window.removeEventListener("message", handleMessage)
       window.removeEventListener("popstate", handlePopState)
     }
-  }, [iframeRef, origin, basePath])
+  }, [iframeRef, origin, basePath, scope.sessionId, scope.tenant, scope.audience])
 }
 
 /** Normalize a configured base path: leading slash, no trailing slash, `""` for root. */

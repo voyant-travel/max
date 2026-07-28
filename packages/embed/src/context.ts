@@ -67,12 +67,12 @@ export type MaxHostContext = {
   id: string
   /** Human-readable label shown in the context chip (e.g. "Booking VYT-10423"). */
   label: string
-  /** Optional deep-link route within the host app for "open in app". */
+  /** Optional deep-link route within the host app for "open in app" (max 2048 chars). */
   route?: string
-  /** Optional sub-view within the entity (e.g. "itinerary", "payments"). */
+  /** Optional sub-view within the entity (e.g. "itinerary", "payments"; max 128 chars). */
   subView?: string
   /**
-   * Monotonic version the host bumps on every context change. Lets the iframe
+   * Non-negative integer the host bumps on every context change. Lets the iframe
    * distinguish a genuinely new context from a duplicate re-send and lets a
    * historical snapshot detect that it is pinned to an older version.
    */
@@ -129,7 +129,11 @@ export type MaxSnapshotContext = {
 
 const MAX_LABEL_LEN = 200
 const MAX_ID_LEN = 512
+const MAX_ROUTE_LEN = 2048
+const MAX_SUBVIEW_LEN = 128
 const MAX_META_KEYS = 32
+const MAX_META_KEY_LEN = 128
+const MAX_META_STRING_LEN = 2048
 
 /**
  * Validate and normalise an untrusted context-like value into a
@@ -156,11 +160,24 @@ export function normalizeHostContext(input: unknown): MaxHostContext | null {
 
   const out: MaxHostContext = { type: raw.type, id, label }
 
-  if (typeof raw.route === "string" && raw.route.length > 0) out.route = raw.route
-  if (typeof raw.subView === "string" && raw.subView.length > 0) out.subView = raw.subView
-  if (typeof raw.version === "number" && Number.isFinite(raw.version)) out.version = raw.version
-  if (typeof raw.capturedAt === "string" && raw.capturedAt.length > 0)
+  if (typeof raw.route === "string" && raw.route.length > 0)
+    out.route = raw.route.slice(0, MAX_ROUTE_LEN)
+  if (typeof raw.subView === "string" && raw.subView.length > 0)
+    out.subView = raw.subView.slice(0, MAX_SUBVIEW_LEN)
+  if (Object.hasOwn(raw, "version")) {
+    if (typeof raw.version !== "number" || !Number.isInteger(raw.version) || raw.version < 0)
+      return null
+    out.version = raw.version
+  }
+  if (Object.hasOwn(raw, "capturedAt")) {
+    if (
+      typeof raw.capturedAt !== "string" ||
+      raw.capturedAt.length === 0 ||
+      !Number.isFinite(Date.parse(raw.capturedAt))
+    )
+      return null
     out.capturedAt = raw.capturedAt
+  }
 
   const meta = normalizeMeta(raw.meta)
   if (meta) out.meta = meta
@@ -174,8 +191,9 @@ function normalizeMeta(input: unknown): MaxContextMeta | null {
   let n = 0
   for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
     if (n >= MAX_META_KEYS) break
+    if (!k || k.length > MAX_META_KEY_LEN) continue
     if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-      out[k] = v
+      out[k] = typeof v === "string" ? v.slice(0, MAX_META_STRING_LEN) : v
       n++
     }
   }

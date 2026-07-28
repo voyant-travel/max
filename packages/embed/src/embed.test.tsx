@@ -6,6 +6,7 @@ import { MaxApp } from "./max-app.js"
 import { MaxChat } from "./max-chat.js"
 import { MaxLauncher } from "./max-launcher.js"
 import { cleanup, render } from "./test-utils.js"
+import type { MaxAppProps, MaxChatProps, MaxLauncherProps } from "./types.js"
 
 const ORIGIN = "https://embed.example"
 
@@ -61,6 +62,39 @@ function postFromIframe(
 }
 
 describe("useContextChannel via MaxChat", () => {
+  it.each([
+    ["MaxChat", (props: Record<string, unknown>) => <MaxChat {...(props as MaxChatProps)} />],
+    ["MaxApp", (props: Record<string, unknown>) => <MaxApp {...(props as MaxAppProps)} />],
+    [
+      "MaxLauncher",
+      (props: Record<string, unknown>) => (
+        <MaxLauncher defaultOpen {...(props as MaxLauncherProps)} />
+      ),
+    ],
+  ])("%s creates a fresh scope and gates context until the new document loads", (_, View) => {
+    const onContextClear = vi.fn()
+    const common = { embedOrigin: ORIGIN, context: product, onContextClear }
+    const { container, rerender } = render(View({ ...common, token: "a", tenant: "tenant-a" }))
+    const first = harness(container)
+    act(() => first.iframe.dispatchEvent(new Event("load")))
+    first.posts.length = 0
+
+    act(() => rerender(View({ ...common, token: "b", tenant: "tenant-b" })))
+    const next = harness(container)
+    const nextSession = new URL(next.iframe.src).searchParams.get("session") as string
+    expect(nextSession).not.toBe(first.sessionId)
+    expect(new URL(next.iframe.src).searchParams.get("tenant")).toBe("tenant-b")
+    expect(next.posts.filter((p) => p.type === "max:setContext")).toHaveLength(0)
+    postFromIframe(next.cw, first.sessionId, "max:clearContext", {}, { tenant: "tenant-a" })
+    expect(onContextClear).not.toHaveBeenCalled()
+
+    act(() => next.iframe.dispatchEvent(new Event("load")))
+    expect(next.posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
+      sessionId: nextSession,
+      tenant: "tenant-b",
+    })
+  })
+
   it("sends the product context to the iframe and re-sends on navigation update", () => {
     const { container, rerender } = render(
       <MaxChat token="t" embedOrigin={ORIGIN} tenant="acme" context={undefined} />,
