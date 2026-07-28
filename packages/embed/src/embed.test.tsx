@@ -96,6 +96,45 @@ describe("useContextChannel via MaxChat", () => {
     })
   })
 
+  it("ignores a previous generation's load listener after a scope change", () => {
+    const loadListeners: EventListener[] = []
+    const originalAdd = HTMLIFrameElement.prototype.addEventListener
+    const addSpy = vi
+      .spyOn(HTMLIFrameElement.prototype, "addEventListener")
+      .mockImplementation(function (this: HTMLIFrameElement, type, listener, options) {
+        if (type === "load") loadListeners.push(listener as EventListener)
+        return originalAdd.call(this, type, listener, options)
+      })
+
+    try {
+      const { container, rerender } = render(
+        <MaxChat token="a" embedOrigin={ORIGIN} tenant="tenant-a" context={product} />,
+      )
+      harness(container)
+      expect(loadListeners.length).toBeGreaterThan(0)
+      const staleOnLoad = loadListeners.at(-1) as EventListener
+
+      act(() => {
+        rerender(
+          <MaxChat token="b" embedOrigin={OTHER_ORIGIN} tenant="tenant-b" context={product} />,
+        )
+      })
+      const next = harness(container)
+      next.posts.length = 0
+
+      act(() => staleOnLoad.call(next.iframe, new Event("load")))
+      expect(next.posts.filter((p) => p.type === "max:setContext")).toHaveLength(0)
+
+      act(() => next.iframe.dispatchEvent(new Event("load")))
+      expect(next.posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
+        sessionId: new URL(next.iframe.src).searchParams.get("session"),
+        tenant: "tenant-b",
+      })
+    } finally {
+      addSpy.mockRestore()
+    }
+  })
+
   it.each([
     ["MaxChat", (props: Record<string, unknown>) => <MaxChat {...(props as MaxChatProps)} />],
     ["MaxApp", (props: Record<string, unknown>) => <MaxApp {...(props as MaxAppProps)} />],

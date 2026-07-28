@@ -304,6 +304,17 @@ describe("loader — idempotent layout round trips", () => {
     inbound(cw, session, "max:requestLayout", { layout: "huge" })
     expect(setLayoutPosts()).toHaveLength(0)
   })
+
+  it("replays a host-applied layout after the bubble iframe loads", () => {
+    const { Max, iframe } = boot()
+
+    Max.setLayout("wide")
+    expect(setLayoutPosts()).toHaveLength(1)
+
+    iframe.dispatchEvent(new Event("load"))
+    expect(setLayoutPosts()).toHaveLength(2)
+    expect(setLayoutPosts().at(-1)).toMatchObject({ layout: "wide" })
+  })
 })
 
 describe("loader — expanded modal accessibility", () => {

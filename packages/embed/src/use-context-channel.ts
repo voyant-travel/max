@@ -116,7 +116,13 @@ export function useContextChannel({
   useEffect(() => {
     const node = iframeRef.current
     if (!node) return
+    const listenerGeneration = scopeGeneration
     const onLoad = () => {
+      // React may commit the replacement iframe document before it has cleaned
+      // up the previous passive effect. Ignore that previous generation's
+      // native listener: it captured the old target origin and must not mark
+      // the replacement generation loaded or send its context.
+      if (activeGeneration.current !== listenerGeneration) return
       hasLoaded.current = true
       const cur = normalizedRef.current
       if (cur === undefined) return

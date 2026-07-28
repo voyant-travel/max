@@ -639,6 +639,10 @@
       }, 260)
       // Re-push the current context to a fresh content window.
       if (state.context !== undefined) sendContext(state.context)
+      // A host may request wide/expanded while the iframe is still loading.
+      // The eager acknowledgement targets the initial document and can be
+      // dropped, so replay the applied layout to this loaded generation.
+      postToIframe(envelope("max:setLayout", { layout: state.layout }))
     })
     document.body.appendChild(panel)
     ensureControls(panel)
