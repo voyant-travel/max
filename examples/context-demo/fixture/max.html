@@ -140,8 +140,15 @@
         var theme = params.get("theme")
         if (theme === "dark") document.body.classList.add("dark")
 
-        // Parent is same-origin in the demo; validate against our own origin.
+        // The host (parent) origin we validate inbound messages against and post
+        // back to. Cross-origin: derive it from the referrer (the parent page);
+        // same-origin fallback: our own origin.
         var PARENT_ORIGIN = location.origin
+        try {
+          if (document.referrer) PARENT_ORIGIN = new URL(document.referrer).origin
+        } catch (e) {
+          /* keep same-origin fallback */
+        }
 
         document.getElementById("scope-line").textContent =
           "session " + scope.sessionId.slice(0, 8) + "… · tenant " + (scope.tenant || "—")

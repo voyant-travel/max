@@ -32,5 +32,7 @@ function maxFixture() {
 
 export default defineConfig({
   plugins: [react(), maxFixture()],
-  server: { port: 48714, strictPort: true },
+  // `host: true` binds all interfaces so the host is reachable as
+  // `localhost:48714` while the fixture runs cross-origin on `127.0.0.1:48715`.
+  server: { port: 48714, strictPort: true, host: true },
 })

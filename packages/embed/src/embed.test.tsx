@@ -66,6 +66,10 @@ describe("useContextChannel via MaxChat", () => {
       <MaxChat token="t" embedOrigin={ORIGIN} tenant="acme" context={undefined} />,
     )
     const { iframe, cw, posts, sessionId } = harness(container)
+    // The iframe loads (real content window) — the first delivery is load-driven.
+    act(() => {
+      iframe.dispatchEvent(new Event("load"))
+    })
 
     act(() => {
       rerender(<MaxChat token="t" embedOrigin={ORIGIN} tenant="acme" context={product} />)
@@ -110,7 +114,10 @@ describe("useContextChannel via MaxChat", () => {
     const { container, rerender } = render(
       <MaxChat token="t" embedOrigin={ORIGIN} context={initial} />,
     )
-    const { posts } = harness(container)
+    const { iframe, posts } = harness(container)
+    act(() => {
+      iframe.dispatchEvent(new Event("load"))
+    })
 
     act(() => {
       rerender(
@@ -138,7 +145,10 @@ describe("useContextChannel via MaxChat", () => {
     const { container, rerender } = render(
       <MaxChat token="t" embedOrigin={ORIGIN} context={product} />,
     )
-    const { posts } = harness(container)
+    const { iframe, posts } = harness(container)
+    act(() => {
+      iframe.dispatchEvent(new Event("load"))
+    })
     act(() => {
       rerender(<MaxChat token="t" embedOrigin={ORIGIN} context={null} />)
     })
