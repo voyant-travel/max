@@ -45,7 +45,10 @@ export function useContextChannel({
 }) {
   // Normalise once per render; `null` is a real value (explicit clear) while
   // `undefined` means "host supplies no context at all".
-  const normalized = context === undefined ? undefined : normalizeHostContext(context)
+  const normalized =
+    context === undefined || context === null
+      ? context
+      : (normalizeHostContext(context) ?? undefined)
   const signature = contextSignature(normalized)
 
   // Signature of the last context we actually sent — dedupes re-renders that
@@ -59,10 +62,6 @@ export function useContextChannel({
   requestRef.current = onContextRequest
   const normalizedRef = useRef(normalized)
   normalizedRef.current = normalized
-  // The content window we last successfully delivered a context to. Guards
-  // against a double initial delivery for the same window, while still
-  // re-delivering to a *fresh* window on reload.
-  const deliveredTo = useRef<Window | null>(null)
   // Whether the iframe has loaded at least once. Before first load the content
   // window is still `about:blank` (the host's own origin), so posting the initial
   // context there would only trip a cross-origin "target origin does not match"
@@ -75,7 +74,6 @@ export function useContextChannel({
     if (!target) return
     try {
       target.postMessage(createEnvelope(scopeRef.current, payload.type, payload), origin)
-      deliveredTo.current = target
     } catch {
       /* iframe might have navigated */
     }
@@ -100,9 +98,11 @@ export function useContextChannel({
 
   // Deliver the current context when the iframe first (or re-)loads. Re-runs when
   // `mounted` flips true so a lazily-mounted launcher iframe gets a listener; the
-  // `deliveredTo` guard keeps this to exactly one effective delivery per window
-  // (a fresh window on reload is delivered to again). This is what makes the
-  // initial context arrive *without* the iframe having to send `max:requestContext`.
+  // Each `load` event is a new document generation. Browsers retain the same
+  // `contentWindow` object across navigations, so window identity cannot dedupe
+  // loads without also starving a freshly navigated document. This is what
+  // makes the initial context arrive *without* the iframe having to send
+  // `max:requestContext`.
   useEffect(() => {
     const node = iframeRef.current
     if (!node) return
@@ -110,7 +110,6 @@ export function useContextChannel({
       hasLoaded.current = true
       const cur = normalizedRef.current
       if (cur === undefined) return
-      if (deliveredTo.current === node.contentWindow) return
       sendContext(cur)
     }
     node.addEventListener("load", onLoad)

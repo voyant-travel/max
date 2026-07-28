@@ -85,4 +85,16 @@ describe("isolateBackground", () => {
     // Pre-existing inert must survive our restore.
     expect(bg.hasAttribute("inert")).toBe(true)
   })
+
+  it("preserves pre-existing aria-hidden and marker values when restoring", () => {
+    document.body.innerHTML =
+      '<div id="bg" aria-hidden="false" data-max-inert="host-owned">bg</div><div id="panel"></div>'
+    const bg = document.getElementById("bg") as HTMLElement
+    const iso = isolateBackground(document.getElementById("panel") as HTMLElement)
+    expect(bg.getAttribute("aria-hidden")).toBe("true")
+    iso.restore()
+    expect(bg.hasAttribute("inert")).toBe(false)
+    expect(bg.getAttribute("aria-hidden")).toBe("false")
+    expect(bg.getAttribute("data-max-inert")).toBe("host-owned")
+  })
 })

@@ -105,6 +105,30 @@ describe("useContextChannel via MaxChat", () => {
     expect(posts.filter((p) => p.type === "max:setContext")).toHaveLength(0)
   })
 
+  it("drops an invalid runtime context without turning it into an explicit clear", () => {
+    const { container, rerender } = render(
+      <MaxChat token="t" embedOrigin={ORIGIN} context={product} />,
+    )
+    const { iframe, posts } = harness(container)
+    act(() => {
+      iframe.dispatchEvent(new Event("load"))
+    })
+    const before = posts.length
+
+    act(() => {
+      rerender(
+        <MaxChat
+          token="t"
+          embedOrigin={ORIGIN}
+          context={{ type: "root", id: "unsafe" } as unknown as MaxHostContext}
+        />,
+      )
+    })
+
+    expect(posts).toHaveLength(before)
+    expect(posts.at(-1)).not.toMatchObject({ context: null })
+  })
+
   it("re-posts when context timestamp or metadata changes", () => {
     const initial: MaxHostContext = {
       ...product,
@@ -324,11 +348,12 @@ describe("MaxLauncher — lazy initial context delivery", () => {
     expect(delivered).toHaveLength(1)
     expect(delivered[0]).toMatchObject({ context: { type: "product", id: "PRD-42" } })
 
-    // A spurious second load must not re-deliver to the same window.
+    // A navigation retains the WindowProxy identity in browsers. A new load is
+    // therefore treated as a new document generation and receives context.
     act(() => {
       iframe.dispatchEvent(new Event("load"))
     })
-    expect(posts.filter((p) => p.type === "max:setContext")).toHaveLength(1)
+    expect(posts.filter((p) => p.type === "max:setContext")).toHaveLength(2)
 
     // Opening did not remount anything else.
     expect(container.querySelector("iframe")).toBe(iframe)
@@ -355,11 +380,30 @@ describe("MaxLauncher — idempotent layout round trips", () => {
 })
 
 describe("MaxLauncher — expanded modal accessibility", () => {
+  it("does not isolate the page while an expanded-default launcher is closed", () => {
+    const bg = document.createElement("div")
+    document.body.appendChild(bg)
+    const { container } = render(
+      <MaxLauncher token="t" embedOrigin={ORIGIN} defaultLayout="expanded" />,
+    )
+    const panel = container.querySelector('[role="dialog"]') as HTMLElement
+
+    expect(panel.getAttribute("aria-modal")).toBeNull()
+    expect(bg.hasAttribute("inert")).toBe(false)
+    expect(bg.getAttribute("aria-hidden")).toBeNull()
+    document.body.removeChild(bg)
+  })
+
   it("makes the expanded panel a modal dialog, isolates the background, moves focus, and restores on Escape", async () => {
     const bg = document.createElement("div")
     bg.id = "host-bg"
     bg.innerHTML = "<button>host action</button>"
-    document.body.appendChild(bg)
+    bg.setAttribute("aria-hidden", "false")
+    bg.setAttribute("data-max-inert", "host-owned")
+    const alreadyInert = document.createElement("div")
+    alreadyInert.setAttribute("inert", "")
+    alreadyInert.setAttribute("aria-hidden", "false")
+    document.body.append(bg, alreadyInert)
 
     const onLayoutChange = vi.fn()
     const { container, findByLabelText } = render(
@@ -389,9 +433,13 @@ describe("MaxLauncher — expanded modal accessibility", () => {
     expect(onLayoutChange).toHaveBeenLastCalledWith("normal")
     expect(panel.getAttribute("aria-modal")).toBeNull()
     expect(bg.hasAttribute("inert")).toBe(false)
-    expect(bg.getAttribute("aria-hidden")).toBeNull()
+    expect(bg.getAttribute("aria-hidden")).toBe("false")
+    expect(bg.getAttribute("data-max-inert")).toBe("host-owned")
+    expect(alreadyInert.hasAttribute("inert")).toBe(true)
+    expect(alreadyInert.getAttribute("aria-hidden")).toBe("false")
 
-    document.body.removeChild(bg)
+    bg.remove()
+    alreadyInert.remove()
   })
 })
 

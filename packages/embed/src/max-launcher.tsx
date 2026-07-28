@@ -129,7 +129,7 @@ export function MaxLauncher({
   // aria-hidden), (2) move focus into the panel, (3) trap Tab, (4) close on
   // Escape, and (5) return focus to the previously-focused element on exit.
   useEffect(() => {
-    if (layout !== "expanded") return
+    if (layout !== "expanded" || !open || !visible) return
     const panel = panelRef.current
     if (!panel) return
     restoreFocusRef.current =
@@ -167,7 +167,7 @@ export function MaxLauncher({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout])
+  }, [layout, open, visible])
 
   // Drive the enter/exit animation off `open`.
   useEffect(() => {
@@ -239,6 +239,7 @@ export function MaxLauncher({
 
   const geom = panelGeometry(layout, { bottom, right })
   const expanded = layout === "expanded"
+  const expandedModal = expanded && open && visible
 
   return (
     <>
@@ -264,7 +265,7 @@ export function MaxLauncher({
         ref={panelRef}
         role="dialog"
         aria-label={title}
-        aria-modal={expanded ? true : undefined}
+        aria-modal={expandedModal ? true : undefined}
         tabIndex={-1}
         style={{
           position: "fixed",

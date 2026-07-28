@@ -38,11 +38,16 @@ export { MaxApp } from "./max-app.js"
 export { MaxChat } from "./max-chat.js"
 export { MaxLauncher } from "./max-launcher.js"
 export type {
+  EnvelopeScopeFailure,
+  MaxEnvelope,
   MaxInboundMessage,
   MaxInboundType,
   MaxLayout,
   MaxOutboundType,
   MaxSessionScope,
+  ValidateFailure,
+  ValidateOptions,
+  ValidateResult,
 } from "./protocol.js"
 
 // postMessage protocol (advanced / for building a custom host or iframe side)
@@ -53,6 +58,7 @@ export {
   MAX_CHANNEL,
   MAX_LAYOUTS,
   PROTOCOL_VERSION,
+  ReplayGuard,
   validateEnvelopeScope,
   validateInbound,
 } from "./protocol.js"

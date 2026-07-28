@@ -13,7 +13,7 @@ Run from the repo root unless noted.
 | Command | Result |
 | --- | --- |
 | `pnpm install --frozen-lockfile` | ✅ lockfile unchanged (no new deps added) |
-| `pnpm --filter @voyant-travel/max-embed test` | ✅ **108 tests passed** (6 files: `context`, `context-receiver`, `protocol`, `embed`, `focus-trap`, `loader`) |
+| `pnpm --filter @voyant-travel/max-embed test` | ✅ **122 tests passed** (7 files: `context`, `context-receiver`, `protocol`, `embed`, `focus-trap`, `loader`, package-root exports) |
 | `pnpm --filter @voyant-travel/max-embed check-types` | ✅ `tsc --noEmit`, no errors |
 | `pnpm exec biome check packages/embed examples/context-demo` | ✅ clean (blanket `examples` exclusion removed; only the HTML fixture is narrowly excluded) |
 | `pnpm --filter @voyant-travel/max-embed build` | ✅ `dist/` emitted incl. `context-receiver`, `focus-trap` |
@@ -64,3 +64,16 @@ receiver's `cleared`/`active` states are exercised in the same harness sequence.
 > Scope note: this exercises the **portable contract + state machine** only.
 > Durable persistence, live entity resolution, and production UI are platform#1515
 > and are not part of this package.
+
+## Final blocker regression pass
+
+The focused suite above was rerun after the final lifecycle/order review. Added
+coverage verifies loader tenant/session state resets on both destroy and re-init,
+invalid React contexts are dropped without clearing, unversioned receiver updates
+order and re-verify correctly, a closed expanded-default launcher does not isolate
+the page, stable `WindowProxy` reloads re-deliver context, package-root protocol
+exports compile, prototype-shaped loader keys are safe, and pre-existing host
+`inert` / `aria-hidden` values survive modal isolation. The cross-origin fixture
+runtime was unchanged; its claims were narrowed to identify the fixture as an
+illustrative hand-written peer, so the existing browser screenshots remain the
+accurate visual evidence for the real host components and receiver harness.

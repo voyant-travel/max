@@ -55,29 +55,29 @@
   // Panel spans nearly the full viewport height: 16px top margin + 88px below
   // (clears the 56px launcher + gap). Matches the taller Figma panel.
   var PANEL_H = "calc(100vh - 104px)"
-  var ENTITY_TYPES = {
-    product: 1,
-    booking: 1,
-    customer: 1,
-    departure: 1,
-    invoice: 1,
-    contract: 1,
+  function allowlist(values) {
+    var out = Object.create(null)
+    for (var i = 0; i < values.length; i++) out[values[i]] = 1
+    return out
   }
-  var INBOUND_TYPES = {
-    "max:ready": 1,
-    "max:close": 1,
-    "max:navigate": 1,
-    "max:requestLayout": 1,
-    "max:setLayout": 1,
-    "max:requestContext": 1,
-    "max:clearContext": 1,
-  }
-  var LEGACY_INBOUND = {
-    "max:ready": 1,
-    "max:close": 1,
-    "max:navigate": 1,
-    "max:setLayout": 1,
-  }
+  var ENTITY_TYPES = allowlist([
+    "product",
+    "booking",
+    "customer",
+    "departure",
+    "invoice",
+    "contract",
+  ])
+  var INBOUND_TYPES = allowlist([
+    "max:ready",
+    "max:close",
+    "max:navigate",
+    "max:requestLayout",
+    "max:setLayout",
+    "max:requestContext",
+    "max:clearContext",
+  ])
+  var LEGACY_INBOUND = allowlist(["max:ready", "max:close", "max:navigate", "max:setLayout"])
 
   var state = {
     token: null,
@@ -103,9 +103,10 @@
     msgListener: null,
     open: false,
     layout: "normal",
-    seenIds: {},
+    seenIds: Object.create(null),
     seenOrder: [],
     modal: null,
+    generation: 0,
   }
 
   function makeId() {
@@ -524,22 +525,32 @@
         var sib = children[i]
         if (sib === node) continue
         if (sib.hasAttribute("inert")) continue
+        changed.push({
+          element: sib,
+          inert: sib.getAttribute("inert"),
+          ariaHidden: sib.getAttribute("aria-hidden"),
+          marker: sib.getAttribute("data-max-inert"),
+        })
         sib.setAttribute("inert", "")
         sib.setAttribute("aria-hidden", "true")
         sib.setAttribute("data-max-inert", "")
-        changed.push(sib)
       }
       node = parent
     }
     return {
       restore: function () {
         for (var i = 0; i < changed.length; i++) {
-          changed[i].removeAttribute("inert")
-          changed[i].removeAttribute("aria-hidden")
-          changed[i].removeAttribute("data-max-inert")
+          restoreAttribute(changed[i].element, "inert", changed[i].inert)
+          restoreAttribute(changed[i].element, "aria-hidden", changed[i].ariaHidden)
+          restoreAttribute(changed[i].element, "data-max-inert", changed[i].marker)
         }
       },
     }
+  }
+
+  function restoreAttribute(element, name, value) {
+    if (value === null) element.removeAttribute(name)
+    else element.setAttribute(name, value)
   }
 
   function enterModal(panel) {
@@ -610,7 +621,9 @@
     panel.appendChild(state.iframeEl)
     var loader = makeLoader()
     panel.appendChild(loader)
+    var generation = state.generation
     state.iframeEl.addEventListener("load", function () {
+      if (state.generation !== generation) return
       loader.style.opacity = "0"
       setTimeout(function () {
         loader.style.display = "none"
@@ -627,9 +640,11 @@
   function openPanel() {
     var p = ensurePanel()
     var b = ensureBackdrop()
+    var generation = state.generation
     b.style.display = "block"
     p.style.display = "block"
     requestAnimationFrame(function () {
+      if (state.generation !== generation) return
       b.style.opacity = "1"
       p.style.opacity = "1"
       p.style.transform = "translateY(0) scale(1)"
@@ -641,10 +656,15 @@
     if (!state.panelEl) return
     var p = state.panelEl
     var b = state.backdropEl
+    var generation = state.generation
     p.style.opacity = "0"
     p.style.transform = "translateY(12px) scale(0.96)"
     if (b) b.style.opacity = "0"
+    // A closing/closed panel is not modal, even while its visual exit animation
+    // is finishing. Release host-page isolation immediately.
+    exitModal()
     setTimeout(function () {
+      if (state.generation !== generation) return
       if (!state.open) {
         p.style.display = "none"
         if (b) b.style.display = "none"
@@ -739,7 +759,9 @@
     host.style.position = host.style.position || "relative"
     state.iframeEl = makeIframe(srcFor("/max"))
     state.iframeEl.style.minHeight = "480px"
+    var generation = state.generation
     state.iframeEl.addEventListener("load", function () {
+      if (state.generation !== generation) return
       if (state.context !== undefined) sendContext(state.context)
     })
     host.appendChild(state.iframeEl)
@@ -754,6 +776,9 @@
       console.error("[Max] init() requires `token`")
       return
     }
+    // Re-initialisation is a new security boundary just like explicit destroy:
+    // tear down any prior tenant/session, listeners, replay cache and DOM first.
+    destroy()
     state.token = opts.token
     state.mode = opts.mode === "inline" ? "inline" : "bubble"
     state.origin = (opts.embedOrigin || DEFAULT_ORIGIN).replace(/\/$/, "")
@@ -763,7 +788,12 @@
     state.audience = typeof opts.audience === "string" && opts.audience ? opts.audience : null
     state.onContextClear = typeof opts.onContextClear === "function" ? opts.onContextClear : null
     state.onLayoutChange = typeof opts.onLayoutChange === "function" ? opts.onLayoutChange : null
-    if (opts.context !== undefined) state.context = normalizeContext(opts.context)
+    state.context =
+      opts.context === undefined
+        ? undefined
+        : opts.context === null
+          ? null
+          : normalizeContext(opts.context) || undefined
 
     var explicitTheme =
       opts.theme === "light" || opts.theme === "dark" || opts.theme === "system"
@@ -855,6 +885,7 @@
   }
 
   function destroy() {
+    state.generation++
     exitModal()
     if (state.observer) state.observer.disconnect()
     if (state.msgListener) window.removeEventListener("message", state.msgListener)
@@ -870,13 +901,39 @@
     state.msgListener = null
     state.open = false
     state.layout = "normal"
+    state.token = null
+    state.mode = "bubble"
+    state.origin = DEFAULT_ORIGIN
+    state.target = null
+    state.theme = null
+    state.lang = null
+    state.autoTheme = false
+    state.autoLang = false
+    state.session = null
+    state.tenant = null
+    state.audience = null
+    state.context = undefined
+    state.onContextClear = null
+    state.onLayoutChange = null
+    state.controlsWideBtn = null
+    state.controlsExpandBtn = null
+    state.seenIds = Object.create(null)
+    state.seenOrder = []
+    state.modal = null
   }
 
   function whenReady(fn) {
+    var generation = state.generation
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", fn, { once: true })
+      document.addEventListener(
+        "DOMContentLoaded",
+        function () {
+          if (state.generation === generation) fn()
+        },
+        { once: true },
+      )
     } else {
-      fn()
+      if (state.generation === generation) fn()
     }
   }
 

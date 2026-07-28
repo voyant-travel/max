@@ -28,7 +28,8 @@
  *     freshness window. `ts === 0` never bypasses the check.
  *  7. **msgId** — a bounded, non-empty string; duplicates are dropped (replay).
  *  8. **ordering** — a lower `version` (same entity) or older `capturedAt` is
- *     rejected as out-of-order; the same revision is an idempotent no-op.
+ *     rejected as out-of-order; when neither is comparable the envelope `ts`
+ *     is the fallback. The same revision is an idempotent no-op.
  *
  * ## Security invariant (discovery-only)
  *
@@ -46,6 +47,7 @@ import {
   isSameContext,
   type MaxHostContext,
   normalizeHostContext,
+  parseContextTimestamp,
 } from "./context.js"
 import {
   DEFAULT_FRESHNESS_MS,
@@ -156,6 +158,8 @@ export class MaxContextReceiver {
   private readonly clock: () => number
 
   private snap: MaxContextSnapshot = EMPTY
+  /** Envelope timestamp used only when a context has no comparable revision marker. */
+  private lastContextTs: number | null = null
   /** Monotonic id of the last committed context, guarding late verifier results. */
   private epoch = 0
   private readonly seen = new Set<string>()
@@ -180,6 +184,7 @@ export class MaxContextReceiver {
   /** Reset to the pristine `empty` state and forget replay history. */
   reset(): void {
     this.snap = EMPTY
+    this.lastContextTs = null
     this.epoch++
     this.seen.clear()
     this.seenOrder.length = 0
@@ -247,7 +252,9 @@ export class MaxContextReceiver {
     if (!("context" in raw)) return reject("bad-payload")
 
     if (raw.context === null) {
+      if (this.lastContextTs !== null && ts < this.lastContextTs) return reject("out-of-order")
       this.snap = CLEARED
+      this.lastContextTs = ts
       const epoch = ++this.epoch
       return {
         ok: true,
@@ -263,15 +270,28 @@ export class MaxContextReceiver {
     if (!context) return reject("bad-context")
 
     const current = this.snap.context
-    if (isSameContext(context, current)) {
+    if (isSameReceiverRevision(context, current)) {
       // Same revision → idempotent no-op (keep whatever verified status we hold).
       return { ok: true, snapshot: this.snap, changed: false, idempotent: true }
     }
     if (isContextOutOfOrder(context, current)) {
       return { ok: false, reason: "out-of-order", snapshot: this.snap }
     }
+    // When neither version nor capturedAt can compare this update with the
+    // current context, fall back to the already-validated envelope timestamp.
+    // This prevents a delayed unversioned message from overwriting newer state,
+    // while a newer message is accepted and re-verified instead of being
+    // mistaken for an idempotent same-entity resend.
+    if (
+      (!current || !hasComparableRevision(context, current)) &&
+      this.lastContextTs !== null &&
+      ts < this.lastContextTs
+    ) {
+      return { ok: false, reason: "out-of-order", snapshot: this.snap }
+    }
 
     this.snap = { status: "active", context }
+    this.lastContextTs = ts
     const epoch = ++this.epoch
     return { ok: true, snapshot: this.snap, changed: true, idempotent: false, context, epoch }
   }
@@ -310,6 +330,32 @@ export class MaxContextReceiver {
       if (evicted !== undefined) this.seen.delete(evicted)
     }
   }
+}
+
+function hasComparableRevision(incoming: MaxHostContext, current: MaxHostContext): boolean {
+  const sameEntity = incoming.type === current.type && incoming.id === current.id
+  if (sameEntity && typeof incoming.version === "number" && typeof current.version === "number") {
+    return true
+  }
+  return parseContextTimestamp(incoming) !== null && parseContextTimestamp(current) !== null
+}
+
+/** Receiver idempotence must not erase meaningful unversioned updates. */
+function isSameReceiverRevision(
+  incoming: MaxHostContext,
+  current: MaxHostContext | null | undefined,
+): boolean {
+  if (!current || !isSameContext(incoming, current)) return false
+  if (typeof incoming.version === "number" && typeof current.version === "number") return true
+
+  const incomingAt = parseContextTimestamp(incoming)
+  const currentAt = parseContextTimestamp(current)
+  if (incomingAt !== null || currentAt !== null) {
+    return incomingAt !== null && incomingAt === currentAt
+  }
+
+  // Without a revision marker, only an actually identical payload is a no-op.
+  return JSON.stringify(incoming) === JSON.stringify(current)
 }
 
 /** Factory alias for {@link MaxContextReceiver}. */

@@ -64,7 +64,12 @@ export function trapTab(container: HTMLElement, event: KeyboardEvent): void {
  */
 export function isolateBackground(target: HTMLElement): { restore: () => void } {
   if (typeof document === "undefined") return { restore: () => {} }
-  const changed: HTMLElement[] = []
+  const changed: Array<{
+    element: HTMLElement
+    inert: string | null
+    ariaHidden: string | null
+    marker: string | null
+  }> = []
   const body = document.body
   let node: HTMLElement | null = target
   while (node && node !== body) {
@@ -74,20 +79,30 @@ export function isolateBackground(target: HTMLElement): { restore: () => void } 
       if (sibling === node) continue
       if (!(sibling instanceof HTMLElement)) continue
       if (sibling.hasAttribute("inert")) continue
+      changed.push({
+        element: sibling,
+        inert: sibling.getAttribute("inert"),
+        ariaHidden: sibling.getAttribute("aria-hidden"),
+        marker: sibling.getAttribute("data-max-inert"),
+      })
       sibling.setAttribute("inert", "")
       sibling.setAttribute("aria-hidden", "true")
       sibling.setAttribute("data-max-inert", "")
-      changed.push(sibling)
     }
     node = parent
   }
   return {
     restore() {
-      for (const el of changed) {
-        el.removeAttribute("inert")
-        el.removeAttribute("aria-hidden")
-        el.removeAttribute("data-max-inert")
+      for (const previous of changed) {
+        restoreAttribute(previous.element, "inert", previous.inert)
+        restoreAttribute(previous.element, "aria-hidden", previous.ariaHidden)
+        restoreAttribute(previous.element, "data-max-inert", previous.marker)
       }
     },
   }
+}
+
+function restoreAttribute(element: HTMLElement, name: string, value: string | null): void {
+  if (value === null) element.removeAttribute(name)
+  else element.setAttribute(name, value)
 }

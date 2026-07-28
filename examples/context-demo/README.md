@@ -26,5 +26,7 @@ What to try:
 - Note the **historical snapshot** keeps its own context and shows a `stale`
   badge once the host has a different live context.
 
-The fixture is also a reference implementation of the iframe side of the
-protocol — see [`../../packages/embed/PROTOCOL.md`](../../packages/embed/PROTOCOL.md).
+The fixture is an illustrative, hand-written iframe peer for exercising the
+wire protocol. It is not the package's exported `MaxContextReceiver` state
+machine and should not be copied as a production receiver. See
+[`../../packages/embed/PROTOCOL.md`](../../packages/embed/PROTOCOL.md).

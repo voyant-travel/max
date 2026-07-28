@@ -231,6 +231,36 @@ describe("MaxContextReceiver — clear / ordering / idempotence", () => {
     expect((r.snapshot().context as MaxHostContext).id).toBe("C-1")
   })
 
+  it("orders and re-verifies same-entity updates that omit version", async () => {
+    const verify = vi.fn<MaxContextVerifier>(() => ({ ok: true }))
+    const r = makeReceiver({ verify })
+    const first = { ...booking, version: undefined, capturedAt: "2026-07-28T10:00:00.000Z" }
+    const next = { ...first, label: "updated", capturedAt: "2026-07-28T10:01:00.000Z" }
+    await r.ingest(ev(first))
+    expect((await r.ingest(ev(next))).ok).toBe(true)
+    expect(verify).toHaveBeenCalledTimes(2)
+    expect(r.snapshot().context).toMatchObject({ label: "updated" })
+
+    expect(await r.ingest(ev({ ...first, capturedAt: "2026-07-28T09:59:00.000Z" }))).toMatchObject({
+      ok: false,
+      reason: "out-of-order",
+    })
+  })
+
+  it("falls back to envelope timestamps for changed contexts with no revision marker", async () => {
+    const verify = vi.fn<MaxContextVerifier>(() => ({ ok: true }))
+    const r = makeReceiver({ verify })
+    const unversioned = { ...booking, version: undefined, capturedAt: undefined }
+    await r.ingest(ev(unversioned, { ts: NOW - 1_000 }))
+    await r.ingest(ev({ ...unversioned, label: "new" }, { ts: NOW }))
+    expect(verify).toHaveBeenCalledTimes(2)
+    expect(r.snapshot().context).toMatchObject({ label: "new" })
+
+    expect(
+      await r.ingest(ev({ ...unversioned, label: "delayed" }, { ts: NOW - 500 })),
+    ).toMatchObject({ ok: false, reason: "out-of-order" })
+  })
+
   it("updates the snapshot synchronously (before await) when there is no verifier", () => {
     const r = makeReceiver()
     void r.ingest(ev(booking))

@@ -9,8 +9,8 @@ iframe. It is the contract an alternative host or an updated iframe must follow.
 > validators/state machine. Durable snapshot **persistence**, live entity
 > **resolution**, and the in-iframe context/approval **UI** are the Max platform's
 > responsibility (platform#1515) and are **not** implemented here (nor necessarily
-> deployed). The `examples/context-demo` fixture is a reference iframe, not a
-> backend.
+> deployed). The `examples/context-demo` fixture is an illustrative hand-written
+> protocol peer, not the exported receiver implementation and not a backend.
 
 > **Security invariant.** The host context is a **discovery hint only**. It never
 > authorises anything. Max re-verifies identity, authentication, authorization,
@@ -83,10 +83,10 @@ the mirror-image `MaxContextReceiver` state machine: exact origin/source, `v1`
 channel, exact payload shape, session/tenant/audience scope, a **finite,
 strictly-positive** fresh `ts` (a `ts=0` never bypasses freshness), a bounded
 non-empty `msgId` (replay dedupe), entity normalization, **monotonic
-version/`capturedAt` ordering** (older updates rejected out-of-order), and
-idempotence. It surfaces an explicit snapshot — `active` / `cleared` / `stale` /
-`degraded` — with an injectable sync/async verifier that resolves *display* status
-only (never authorization).
+version/`capturedAt` ordering** with envelope-`ts` fallback (older updates
+rejected out-of-order), and idempotence. It surfaces an explicit snapshot —
+`active` / `cleared` / `stale` / `degraded` — with an injectable sync/async
+verifier that resolves *display* status only (never authorization).
 
 ## Messages
 

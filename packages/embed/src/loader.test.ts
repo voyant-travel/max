@@ -150,6 +150,53 @@ describe("loader — context normalization parity", () => {
     Max?.setContext({ type: "booking", id: "x".repeat(600), label: "x" })
     expect(setContextPosts()).toHaveLength(0)
   })
+
+  it("does not accept Object.prototype names as entity types", () => {
+    boot()
+    ;(window as unknown as Win).Max?.setContext({ type: "toString", id: "x" })
+    expect(setContextPosts()).toHaveLength(0)
+  })
+})
+
+describe("loader — lifecycle isolation", () => {
+  it("does not leak context or scope from init A through destroy into init B", () => {
+    const { Max } = boot({
+      tenant: "tenant-a",
+      audience: "surface-a",
+      context: { type: "booking", id: "A-1" },
+    })
+    Max.destroy()
+
+    Max.init({ token: "b", mode: "bubble", embedOrigin: ORIGIN })
+    Max.open()
+    const iframe = document.querySelector("iframe") as HTMLIFrameElement
+    const cw = iframe.contentWindow as Window
+    const freshPosts: Array<Record<string, unknown>> = []
+    cw.postMessage = ((message: unknown) => {
+      freshPosts.push(message as Record<string, unknown>)
+    }) as typeof cw.postMessage
+    iframe.dispatchEvent(new Event("load"))
+
+    const url = new URL(iframe.src)
+    expect(url.searchParams.has("tenant")).toBe(false)
+    expect(url.searchParams.has("audience")).toBe(false)
+    expect(freshPosts.filter((message) => message.type === "max:setContext")).toHaveLength(0)
+  })
+
+  it("treats re-init without an explicit destroy as a fresh security boundary", () => {
+    const { Max } = boot({
+      tenant: "tenant-a",
+      context: { type: "booking", id: "A-1" },
+    })
+
+    Max.init({ token: "b", mode: "bubble", embedOrigin: ORIGIN, tenant: "tenant-b" })
+    Max.open()
+    const iframe = document.querySelector("iframe") as HTMLIFrameElement
+    const url = new URL(iframe.src)
+
+    expect(document.querySelectorAll("iframe")).toHaveLength(1)
+    expect(url.searchParams.get("tenant")).toBe("tenant-b")
+  })
 })
 
 describe("loader — strict inbound validation", () => {
@@ -191,6 +238,16 @@ describe("loader — strict inbound validation", () => {
     inbound(cw, session, "max:requestContext", {}, { ts: Number.NaN })
     inbound(cw, session, "max:requestContext", {}, { ts: Date.now() - 60_000 })
     expect(setContextPosts().length).toBe(before + 1)
+  })
+
+  it("accepts prototype-shaped msgIds once and rejects prototype-shaped message types", () => {
+    const { cw, session } = boot()
+    ;(window as unknown as Win).Max?.setContext({ type: "booking", id: "B-1" })
+    const before = setContextPosts().length
+    inbound(cw, session, "max:requestContext", {}, { msgId: "toString" })
+    expect(setContextPosts()).toHaveLength(before + 1)
+    inbound(cw, session, "toString", {}, { msgId: "constructor" })
+    expect(setContextPosts()).toHaveLength(before + 1)
   })
 
   it("clears on max:clearContext and echoes a null context", () => {
@@ -245,5 +302,38 @@ describe("loader — expanded modal accessibility", () => {
     expect(bg.getAttribute("aria-hidden")).toBeNull()
 
     document.body.removeChild(bg)
+  })
+
+  it("releases modal isolation immediately when an expanded panel closes", () => {
+    const bg = document.createElement("div")
+    document.body.appendChild(bg)
+    const { Max } = boot()
+    Max.setLayout("expanded")
+    expect(bg.hasAttribute("inert")).toBe(true)
+    Max.close()
+    expect(bg.hasAttribute("inert")).toBe(false)
+    expect(bg.getAttribute("aria-hidden")).toBeNull()
+    document.body.removeChild(bg)
+  })
+
+  it("preserves host-owned aria-hidden, inert, and marker attributes", () => {
+    const aria = document.createElement("div")
+    aria.setAttribute("aria-hidden", "false")
+    aria.setAttribute("data-max-inert", "host-owned")
+    const inert = document.createElement("div")
+    inert.setAttribute("inert", "")
+    inert.setAttribute("aria-hidden", "false")
+    document.body.append(aria, inert)
+    const { Max } = boot()
+    Max.setLayout("expanded")
+    Max.setLayout("normal")
+
+    expect(aria.hasAttribute("inert")).toBe(false)
+    expect(aria.getAttribute("aria-hidden")).toBe("false")
+    expect(aria.getAttribute("data-max-inert")).toBe("host-owned")
+    expect(inert.hasAttribute("inert")).toBe(true)
+    expect(inert.getAttribute("aria-hidden")).toBe("false")
+    aria.remove()
+    inert.remove()
   })
 })

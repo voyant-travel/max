@@ -183,9 +183,10 @@ window.addEventListener("message", async (event) => {
 It enforces exact origin/source, the `v1` channel, exact payload shape,
 session/tenant/audience scope, a finite strictly-positive fresh `ts` and a bounded
 non-empty `msgId` (a `ts=0` never bypasses freshness), replay dedupe, entity
-normalization, monotonic version/`capturedAt` ordering (older updates are rejected
-out-of-order), and idempotence. The `verify` callback resolves *display* status
-only; it does **not** authorize actions (see the security invariant).
+normalization, monotonic version/`capturedAt` ordering with envelope-`ts` fallback
+(older updates are rejected out-of-order), and idempotence. The `verify` callback
+resolves *display* status only; it does **not** authorize actions (see the
+security invariant).
 
 ### Scope: what this package is (and isn't)
 
@@ -194,8 +195,10 @@ wire format, the host- and receiver-side validators, the ordering/verification
 logic, and the React/loader plumbing. Durable snapshot **persistence**, live entity
 **resolution**, and the in-iframe context/approval **UI** live in the Max platform
 (tracked in platform#1515) and are **not** part of this package (nor necessarily
-deployed yet). The runnable `examples/context-demo` fixture is a reference
-implementation of the iframe side of the protocol, not a production backend.
+deployed yet). The runnable `examples/context-demo` iframe is an illustrative,
+hand-written protocol peer for browser demos, not the exported receiver state
+machine and not a production backend. Receiver behavior is covered directly by
+the package's `context-receiver.test.ts` suite.
 
 ## Panel layouts (launcher)
 
@@ -254,7 +257,8 @@ React components do, and speaks the same validated context/layout protocol:
   `session` / `tenant` / `audience` query params and echo them in its envelopes,
   handle `max:setContext` / `max:setLayout`, and send
   `max:requestContext` / `max:clearContext` / `max:requestLayout`. A complete
-  reference implementation lives in `examples/context-demo/fixture/max.html`.
+  illustrative wire-level fixture lives in `examples/context-demo/fixture/max.html`;
+  production consumers should use the exported `createContextReceiver` contract.
 
 ## License
 
