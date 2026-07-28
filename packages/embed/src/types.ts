@@ -1,3 +1,6 @@
+import type { MaxHostContext } from "./context.js"
+import type { MaxLayout } from "./protocol.js"
+
 export const DEFAULT_EMBED_ORIGIN = "https://agent-embed.voyant.travel"
 
 /**
@@ -33,6 +36,43 @@ export type MaxChatProps = {
   style?: React.CSSProperties
   /** Called once the chat iframe has loaded. */
   onLoad?: () => void
+
+  // --- Tenant-safe host-context channel -----------------------------------
+
+  /**
+   * The entity the operator is currently looking at, handed to Max as a
+   * *discovery hint* (a booking, customer, invoice, …). Streamed to the iframe
+   * over a validated `postMessage` channel; changing it on host navigation
+   * updates the iframe **without remounting it**, so chat state is preserved.
+   *
+   * Pass `null` to explicitly clear the context (distinct from omitting the
+   * prop, which means "this host supplies no context").
+   *
+   * SECURITY: the context never authorises anything. Max re-verifies identity,
+   * auth, approval and consequence-preview for every action regardless of what
+   * is passed here. See `CONTEXT_SECURITY_INVARIANT`.
+   */
+  context?: MaxHostContext | null
+  /**
+   * Tenant the embed token is scoped to. When set, inbound messages whose
+   * envelope tenant doesn't match are rejected, hardening the channel against
+   * cross-tenant message injection. Should match the tenant your backend minted
+   * the token for.
+   */
+  tenant?: string
+  /**
+   * Audience/surface the token targets (e.g. `"agent-desktop"`). When set,
+   * enforced on inbound messages the same way as `tenant`.
+   */
+  audience?: string
+  /**
+   * The user pressed *clear* on the context chip inside the iframe. Drop your
+   * own selection state here (e.g. set `context` back to `null`). The clear is
+   * always explicit — Max never silently discards a context.
+   */
+  onContextClear?: () => void
+  /** The iframe asked the host to (re)send the current context. Rarely needed. */
+  onContextRequest?: () => void
 }
 
 export type MaxLauncherProps = MaxChatProps & {
@@ -42,6 +82,16 @@ export type MaxLauncherProps = MaxChatProps & {
   bottom?: number
   /** Right offset for the floating launcher in px. Defaults to 20. */
   right?: number
+  /**
+   * Initial panel layout. `normal` is the docked ~420px bubble, `wide` a roomier
+   * ~640px panel, `expanded` a centred near-full-page overlay. The embedded app
+   * can request a layout (`max:requestLayout`) and the user can toggle it with
+   * the on-panel expand/restore control; the host echoes the applied layout back
+   * (`max:setLayout`) so both sides stay in sync. Defaults to `normal`.
+   */
+  defaultLayout?: MaxLayout
+  /** Called whenever the panel layout changes, with the new layout. */
+  onLayoutChange?: (layout: MaxLayout) => void
 }
 
 export type MaxAppProps = MaxChatProps & {

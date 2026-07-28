@@ -41,7 +41,8 @@
       "!**/.changeset",
       "!**/*.gen.ts",
       "!packages/cli/src/commands/workflows/__tests__",
-      "!packages/embed/loader"
+      "!packages/embed/loader",
+      "!examples/context-demo/fixture/max.html"
     ]
   },
   "overrides": [

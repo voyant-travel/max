@@ -92,11 +92,121 @@ so a refreshed deep-link still mounts it.
 | `bottom`/`right` | `number` (launcher)          | `20`                               | Launcher offset in px.                                      |
 | `basePath`    | `string` (app)                  | `/`                                | Embedder path the app is mounted under; reflected in the URL. |
 | `onRouteChange` | `(path: string) => void` (app)| —                                  | Fires on in-iframe navigation with the app-relative path.   |
+| `context`     | `MaxHostContext \| null`        | —                                  | Typed host context (discovery hint). `null` clears; see below. |
+| `tenant`      | `string`                        | —                                  | Tenant scope enforced on inbound messages.                  |
+| `audience`    | `string`                        | —                                  | Audience/surface scope enforced on inbound messages.        |
+| `onContextClear` | `() => void`                 | —                                  | User pressed *clear* inside the iframe — drop your selection. |
+| `defaultLayout` | `"normal" \| "wide" \| "expanded"` (launcher) | `"normal"`          | Initial panel layout.                                       |
+| `onLayoutChange` | `(layout) => void` (launcher)| —                                  | Fires when the panel layout changes.                        |
 
 Theme and language are auto-detected from `<html class="dark">` / `<html data-theme>` /
 `<html lang>` and tracked live — toggling your page theme keeps the iframe in sync
 without remounting it (chat state is preserved). Pass `theme`/`lang` to take over
 either axis.
+
+## Host context — a typed, tenant-safe discovery hint
+
+Tell Max what the operator is currently looking at so it can offer relevant help
+without the user re-typing an identifier. The context streams to the iframe over
+a validated `postMessage` channel; changing it on host navigation updates the
+iframe **without remounting it**, so chat state is preserved.
+
+```tsx
+import { MaxChat, type MaxHostContext } from "@voyant-travel/max-embed"
+
+function BookingPage({ booking }) {
+  const context: MaxHostContext = {
+    type: "booking",              // product | booking | customer | departure | invoice | contract
+    id: booking.reference,        // stable, tenant-scoped, opaque
+    label: `Booking ${booking.reference}`,
+    route: `/bookings/${booking.reference}`,
+    version: booking.rev,         // bump on every change
+  }
+  return (
+    <MaxChat
+      token={token}
+      tenant="acme"
+      audience="agent-desktop"
+      context={context}
+      onContextClear={() => {/* user cleared it inside Max — drop your selection */}}
+    />
+  )
+}
+```
+
+Pass `context={null}` to **explicitly** clear it (distinct from omitting the prop,
+which means "this host supplies no context"). The clear is always explicit — Max
+never silently discards a context.
+
+> **Security invariant.** The host context is a *discovery hint only*. It never
+> authorises anything — Max re-verifies identity, auth, approval and
+> consequence-preview for every action server-side, regardless of the supplied
+> context. Never use it to bypass a check. Exported as `CONTEXT_SECURITY_INVARIANT`.
+
+**Historical conversations** — the contract keeps a pinned context and represents
+it non-destructively with a `MaxContextStatus`
+(`active` / `stale` / `archived` / `deleted` / `unauthorized`) via
+`deriveContextStatus`, so a stored conversation never has to inherit the current
+host context. Actually persisting those snapshots and resolving them live is the
+platform's job — see the scope note below.
+
+The channel is strict: inbound messages are validated by exact origin, by
+`event.source` (must be *this* iframe — blocks cross-tab replay), by session id
+(blocks cross-session replay), by tenant/audience scope, by a replay/freshness
+guard, and by strict per-type payload validation (`max:navigate` accepts only
+safe app-relative paths; layout messages require a valid layout); the entity type
+is validated too. Full spec in [`PROTOCOL.md`](./PROTOCOL.md).
+
+### Receiving context (iframe / consumer side)
+
+`MaxContextReceiver` (alias `createContextReceiver`) is the portable, framework-
+agnostic state machine for the *receiving* end of the channel. Feed it raw
+`message` events and it maintains an ordered, replay-resistant, verified snapshot:
+
+```ts
+import { createContextReceiver } from "@voyant-travel/max-embed"
+
+const receiver = createContextReceiver({
+  expectedOrigin: "https://your-host.example",
+  expectedSource: window.parent, // the host window (strict source check)
+  scope: { sessionId, tenant: "acme", audience: "agent-desktop" },
+  // Optional: resolve *display* status only — never authorization.
+  verify: async (ctx) => (await stillExists(ctx)) ? { ok: true } : { ok: false, reason: "deleted" },
+})
+
+window.addEventListener("message", async (event) => {
+  await receiver.ingest(event)
+  render(receiver.snapshot()) // { status: "active" | "cleared" | "stale" | "degraded", context }
+})
+```
+
+It enforces exact origin/source, the `v1` channel, exact payload shape,
+session/tenant/audience scope, a finite strictly-positive fresh `ts` and a bounded
+non-empty `msgId` (a `ts=0` never bypasses freshness), replay dedupe, entity
+normalization, monotonic version/`capturedAt` ordering with envelope-`ts` fallback
+(older updates are rejected out-of-order), and idempotence. The `verify` callback
+resolves *display* status only; it does **not** authorize actions (see the
+security invariant).
+
+### Scope: what this package is (and isn't)
+
+`@voyant-travel/max-embed` ships the **portable contract and state machine** — the
+wire format, the host- and receiver-side validators, the ordering/verification
+logic, and the React/loader plumbing. Durable snapshot **persistence**, live entity
+**resolution**, and the in-iframe context/approval **UI** live in the Max platform
+(tracked in platform#1515) and are **not** part of this package (nor necessarily
+deployed yet). The runnable `examples/context-demo` iframe is an illustrative,
+hand-written protocol peer for browser demos, not the exported receiver state
+machine and not a production backend. Receiver behavior is covered directly by
+the package's `context-receiver.test.ts` suite.
+
+## Panel layouts (launcher)
+
+The floating launcher supports three responsive layouts — `normal` (docked
+bubble), `wide`, and `expanded` (centred near-full-page) — with on-panel
+expand / restore controls. The embedded app can request a layout and the host
+echoes the applied layout back, so both stay in sync; layout changes never
+remount the iframe.
 
 ## Plain HTML — `<script>` loader
 
@@ -111,8 +221,44 @@ mirrors npm:
 </script>
 ```
 
-`Max.init(opts)` · `Max.open()` · `Max.close()` · `Max.destroy()`. It sniffs and
-tracks the host theme/language the same way the React components do.
+`Max.init(opts)` · `Max.open()` · `Max.close()` · `Max.setContext(ctx)` ·
+`Max.clearContext()` · `Max.setLayout("normal" | "wide" | "expanded")` ·
+`Max.destroy()`. It sniffs and tracks the host theme/language the same way the
+React components do, and speaks the same validated context/layout protocol:
+
+```html
+<script>
+  Max.init({ token, mode: "bubble", tenant: "acme", audience: "agent-desktop" })
+  Max.setContext({ type: "booking", id: "VYT-10423", label: "Booking VYT-10423" })
+  // …on navigation:
+  Max.setContext({ type: "customer", id: "CUS-7781", label: "Ada Lovelace" })
+  Max.clearContext() // explicit clear
+</script>
+```
+
+## Migration notes (for platform consumers)
+
+`0.4.x → 0.5.0` is **backwards compatible** — every existing usage keeps working:
+
+- All new props (`context`, `tenant`, `audience`, `onContextClear`,
+  `defaultLayout`, `onLayoutChange`) are optional. Omit them and behaviour is
+  unchanged. Same for the loader's new `tenant`/`audience`/`context` options and
+  the `setContext` / `clearContext` / `setLayout` methods.
+- **Outbound** messages now carry a versioned envelope (`channel`, `v`,
+  `sessionId`, `tenant`, `audience`, `msgId`, `ts`) in addition to the existing
+  `type` + payload. Iframes that only read `type` and their payload key are
+  unaffected.
+- **Inbound** validation is stricter: messages must come from *this* iframe's
+  `contentWindow` (not just the right origin). Already-deployed iframes that send
+  the old un-enveloped `max:close` / `max:setLayout` / `max:navigate` from their
+  own content window continue to work; new context/layout-request features
+  require the envelope. See [`PROTOCOL.md`](./PROTOCOL.md).
+- To adopt the context channel end-to-end, the Max iframe side must read the
+  `session` / `tenant` / `audience` query params and echo them in its envelopes,
+  handle `max:setContext` / `max:setLayout`, and send
+  `max:requestContext` / `max:clearContext` / `max:requestLayout`. A complete
+  illustrative wire-level fixture lives in `examples/context-demo/fixture/max.html`;
+  production consumers should use the exported `createContextReceiver` contract.
 
 ## License
 

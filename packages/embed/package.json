@@ -16,7 +16,8 @@
   },
   "files": [
     "dist",
-    "loader"
+    "loader",
+    "PROTOCOL.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -32,9 +33,11 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@voyant-travel/max-tsconfig": "workspace:*",
+    "jsdom": "^25.0.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "typescript": "5.9.2",

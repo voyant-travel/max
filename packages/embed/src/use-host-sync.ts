@@ -1,5 +1,6 @@
-import { type RefObject, useEffect, useRef } from "react"
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react"
 
+import { createEnvelope, type MaxSessionScope } from "./protocol.js"
 import type { MaxTheme } from "./types.js"
 
 const VALID_THEMES = new Set<MaxTheme>(["light", "dark", "system"])
@@ -54,13 +55,19 @@ export function readInitialHostSnapshot(props: { theme?: MaxTheme; lang?: string
 export function useHostSync({
   iframeRef,
   origin,
+  scope,
   theme: themeProp,
   lang: langProp,
+  mounted = true,
 }: {
   iframeRef: RefObject<HTMLIFrameElement | null>
   origin: string
+  scope: MaxSessionScope
   theme?: MaxTheme
   lang?: string
+  /** See {@link useContextChannel} — re-attaches the `load` push for a lazily
+   *  mounted launcher iframe. Defaults to `true`. */
+  mounted?: boolean
 }) {
   // Latest values we've sent to the iframe — to dedupe and to push on
   // re-mount/iframe-load.
@@ -68,16 +75,37 @@ export function useHostSync({
     theme: null,
     lang: null,
   })
+  const initialized = useRef({ theme: false, lang: false })
 
   // Track whether each axis is in auto-detect mode (no caller prop).
   const autoTheme = themeProp === undefined
   const autoLang = langProp === undefined
+  const scopeGeneration = `${origin}\u0000${scope.sessionId}\u0000${scope.tenant ?? ""}\u0000${scope.audience ?? ""}`
+  const activeGeneration = useRef(scopeGeneration)
+  const originRef = useRef(origin)
+  const scopeRef = useRef(scope)
+  const hasLoaded = useRef(false)
 
-  function post(payload: object) {
+  // Keep listener-visible routing state tied to the committed iframe. Reset
+  // readiness at the same commit that changes its src; updates are buffered in
+  // `lastSent` and replayed by the replacement document's load event.
+  useLayoutEffect(() => {
+    originRef.current = origin
+    scopeRef.current = scope
+    if (activeGeneration.current !== scopeGeneration) {
+      activeGeneration.current = scopeGeneration
+      hasLoaded.current = false
+    }
+  })
+
+  function post(
+    payload: { type: "max:setTheme"; theme: MaxTheme } | { type: "max:setLang"; lang: string },
+  ) {
+    if (!hasLoaded.current) return
     const target = iframeRef.current?.contentWindow
     if (!target) return
     try {
-      target.postMessage(payload, origin)
+      target.postMessage(createEnvelope(scopeRef.current, payload.type, payload), originRef.current)
     } catch {
       /* iframe might have navigated */
     }
@@ -85,23 +113,30 @@ export function useHostSync({
 
   // Push current state on iframe load, so a fresh content window picks up
   // any host changes that happened before this hook's mount.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = iframeRef.current
     if (!node) return
     const onLoad = () => {
-      if (lastSent.current.theme) post({ type: "max:setTheme", theme: lastSent.current.theme })
-      if (lastSent.current.lang) post({ type: "max:setLang", lang: lastSent.current.lang })
+      if (iframeRef.current !== node) return
+      hasLoaded.current = true
+      if (initialized.current.theme && lastSent.current.theme) {
+        post({ type: "max:setTheme", theme: lastSent.current.theme })
+      }
+      if (initialized.current.lang) {
+        post({ type: "max:setLang", lang: lastSent.current.lang ?? "" })
+      }
     }
     node.addEventListener("load", onLoad)
     return () => node.removeEventListener("load", onLoad)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [iframeRef, mounted])
 
   // Explicit prop changes — push immediately when the caller controls the axis.
   useEffect(() => {
     if (autoTheme || !themeProp) return
     if (lastSent.current.theme === themeProp) return
     lastSent.current.theme = themeProp
+    initialized.current.theme = true
     post({ type: "max:setTheme", theme: themeProp })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoTheme, themeProp])
@@ -110,6 +145,7 @@ export function useHostSync({
     if (autoLang || !langProp) return
     if (lastSent.current.lang === langProp) return
     lastSent.current.lang = langProp
+    initialized.current.lang = true
     post({ type: "max:setLang", lang: langProp })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoLang, langProp])
@@ -120,10 +156,23 @@ export function useHostSync({
     if (typeof MutationObserver === "undefined") return
     if (typeof document === "undefined") return
 
-    // Seed lastSent with current host values so the first push on iframe load
-    // carries the right state.
-    if (autoTheme) lastSent.current.theme = detectHostTheme()
-    if (autoLang) lastSent.current.lang = detectHostLang()
+    // Seed and push the detected values. The immediate push matters when a
+    // caller releases a previously controlled prop back to auto mode: entering
+    // auto mode does not itself cause a DOM mutation.
+    if (autoTheme) {
+      const next = detectHostTheme()
+      const changed = !initialized.current.theme || next !== lastSent.current.theme
+      lastSent.current.theme = next
+      initialized.current.theme = true
+      if (changed && next) post({ type: "max:setTheme", theme: next })
+    }
+    if (autoLang) {
+      const next = detectHostLang()
+      const changed = !initialized.current.lang || next !== lastSent.current.lang
+      lastSent.current.lang = next
+      initialized.current.lang = true
+      if (changed) post({ type: "max:setLang", lang: next ?? "" })
+    }
 
     const observer = new MutationObserver(() => {
       if (autoTheme) {

@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { LoadingOverlay, resolveDark } from "./loading.js"
+import { createSessionId } from "./protocol.js"
 import { DEFAULT_EMBED_ORIGIN, type MaxChatProps } from "./types.js"
+import { useContextChannel } from "./use-context-channel.js"
 import { readInitialHostSnapshot, useHostSync } from "./use-host-sync.js"
 
 /**
@@ -28,11 +30,22 @@ export function MaxChat({
   className,
   style,
   onLoad,
+  context,
+  tenant,
+  audience,
+  onContextClear,
+  onContextRequest,
 }: MaxChatProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const [loaded, setLoaded] = useState(false)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
   const dark = useMemo(() => resolveDark({ theme, lang }), [theme, lang])
+  const sessionId = useMemo(createSessionId, [token, tenant, audience, origin])
+  useEffect(() => setLoaded(false), [sessionId])
+  const scope = useMemo(
+    () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
+    [sessionId, tenant, audience],
+  )
 
   // Initial src — read host once for the URL so the iframe boots with the
   // correct theme/lang and we avoid a colour flash. Updates after mount flow
@@ -42,10 +55,14 @@ export function MaxChat({
     const params = new URLSearchParams({ token })
     if (snapshot.theme) params.set("theme", snapshot.theme)
     if (snapshot.lang) params.set("lang", snapshot.lang)
+    params.set("session", sessionId)
+    if (tenant) params.set("tenant", tenant)
+    if (audience) params.set("audience", audience)
     return `${origin}/max?${params.toString()}`
-  }, [token, origin])
+  }, [token, origin, sessionId, tenant, audience])
 
-  useHostSync({ iframeRef, origin, theme, lang })
+  useHostSync({ iframeRef, origin, scope, theme, lang })
+  useContextChannel({ iframeRef, origin, scope, context, onContextClear, onContextRequest })
 
   return (
     <div

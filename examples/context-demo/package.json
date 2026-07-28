@@ -1,0 +1,24 @@
+{
+  "name": "@voyant-travel/max-context-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:host-xorigin": "VITE_EMBED_ORIGIN=http://127.0.0.1:48715 vite",
+    "dev:fixture": "vite --config vite.fixture.config.ts",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@voyant-travel/max-embed": "workspace:*",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.7"
+  }
+}

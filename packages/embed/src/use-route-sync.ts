@@ -1,4 +1,6 @@
-import { type RefObject, useEffect, useRef } from "react"
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react"
+
+import { createEnvelope, type MaxSessionScope, ReplayGuard, validateInbound } from "./protocol.js"
 
 /**
  * Two-way route sync between the embedder page and the fullscreen Max iframe.
@@ -22,46 +24,71 @@ import { type RefObject, useEffect, useRef } from "react"
 export function useRouteSync({
   iframeRef,
   origin,
+  scope,
   basePath,
+  ready = true,
   onRouteChange,
 }: {
   iframeRef: RefObject<HTMLIFrameElement | null>
   origin: string
+  scope: MaxSessionScope
   basePath: string
+  /** False while a scope change is navigating the existing iframe WindowProxy. */
+  ready?: boolean
   onRouteChange?: (path: string) => void
 }) {
+  const scopeRef = useRef(scope)
+  // Consulted by listener closures from the previous committed render too.
+  // Passive-effect cleanup runs after paint, so a popstate can otherwise land
+  // in that narrow window and post the new scope through an old `ready=true`
+  // closure to the document being replaced.
+  const readyRef = useRef(ready)
   // The app-relative path most recently replayed *into* the iframe from a
   // popstate. While the iframe settles on it we suppress the history echo.
   const replayedToIframe = useRef<string | null>(null)
 
   // Keep the latest callback without re-subscribing the message listener.
   const onRouteChangeRef = useRef(onRouteChange)
-  onRouteChangeRef.current = onRouteChange
+  // Event listeners belong to the committed iframe. A suspended concurrent
+  // render must not publish speculative scope/readiness into those listeners.
+  useLayoutEffect(() => {
+    scopeRef.current = scope
+    readyRef.current = ready
+    onRouteChangeRef.current = onRouteChange
+  })
 
   useEffect(() => {
+    const guard = new ReplayGuard()
+
     function post(path: string) {
+      if (!readyRef.current) return
       const target = iframeRef.current?.contentWindow
       if (!target) return
       try {
-        target.postMessage({ type: "max:setRoute", path }, origin)
+        target.postMessage(createEnvelope(scopeRef.current, "max:setRoute", { path }), origin)
       } catch {
         /* iframe might have navigated */
       }
     }
 
     function handleMessage(event: MessageEvent) {
-      if (event.origin !== origin) return
-      const data = event.data as { type?: string; path?: string } | null
-      if (!data) return
+      const result = validateInbound(event, {
+        expectedOrigin: origin,
+        expectedSource: iframeRef.current?.contentWindow,
+        scope: scopeRef.current,
+        replay: guard,
+      })
+      if (!result.ok) return
+      const { message } = result
 
-      if (data.type === "max:ready") {
+      if (message.type === "max:ready") {
         // The iframe booted with the deep-linked path already in its `src`, so
         // nothing to replay here; this hook is ready for its navigations.
         return
       }
 
-      if (data.type === "max:navigate" && typeof data.path === "string") {
-        const appPath = data.path
+      if (message.type === "max:navigate" && typeof message.path === "string") {
+        const appPath = message.path
         if (replayedToIframe.current === appPath) {
           // We caused this navigation via popstate — don't push history again.
           replayedToIframe.current = null
@@ -82,13 +109,22 @@ export function useRouteSync({
       onRouteChangeRef.current?.(appPath)
     }
 
+    // The src already carries the initial path, but a scope-navigation window
+    // may have withheld a later popstate. Replaying current host state once the
+    // replacement document is ready is idempotent and closes that gap.
+    if (ready) {
+      const appPath = hostPathToAppPath(basePath)
+      replayedToIframe.current = appPath
+      post(appPath)
+    }
+
     window.addEventListener("message", handleMessage)
     window.addEventListener("popstate", handlePopState)
     return () => {
       window.removeEventListener("message", handleMessage)
       window.removeEventListener("popstate", handlePopState)
     }
-  }, [iframeRef, origin, basePath])
+  }, [iframeRef, origin, basePath, ready, scope.sessionId, scope.tenant, scope.audience])
 }
 
 /** Normalize a configured base path: leading slash, no trailing slash, `""` for root. */
