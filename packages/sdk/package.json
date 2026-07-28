@@ -14,7 +14,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "MIGRATING-SEMANTIC-CARDS.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

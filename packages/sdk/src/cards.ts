@@ -41,17 +41,65 @@ export type Badge = z.infer<typeof BadgeSchema>
 export const CardActionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("open"),
-    label: z.string().min(1).max(60).optional(),
-    url: z.string().min(1).max(2000),
+    label: z.string().trim().min(1).max(60),
+    url: z.string().trim().min(1).max(2000),
   }),
   z.object({
     kind: z.literal("prompt"),
-    label: z.string().min(1).max(60),
-    prompt: z.string().min(1).max(2000),
+    label: z.string().trim().min(1).max(60),
+    prompt: z.string().trim().min(1).max(2000),
     tone: ToneSchema.optional(),
   }),
 ])
 export type CardAction = z.infer<typeof CardActionSchema>
+
+/** The supported business entities for semantic result cards. */
+export const EntityTypeSchema = z.enum([
+  "booking",
+  "product",
+  "person",
+  "departure",
+  "finance",
+  "contract",
+])
+export type EntityType = z.infer<typeof EntityTypeSchema>
+
+/**
+ * A display-ready date. `value` must already be formatted for the host's locale
+ * and timezone; renderers must not parse it as an ISO timestamp. `label` gives
+ * the value its visible meaning (for example, "Departure" or "Due date").
+ */
+export const DisplayDateSchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  value: z.string().trim().min(1).max(120),
+})
+export type DisplayDate = z.infer<typeof DisplayDateSchema>
+
+const EntityIdentityShape = {
+  displayName: z.string().trim().min(1).max(240),
+  reference: z.string().trim().min(1).max(120).optional(),
+}
+
+function hasDistinctIdentity(value: { displayName: string; reference?: string }): boolean {
+  return (
+    value.reference?.localeCompare(value.displayName, undefined, { sensitivity: "accent" }) !== 0
+  )
+}
+
+/** Build an identity while preventing a reference from duplicating its display name. */
+export function entityIdentity(
+  displayName: string,
+  reference?: string,
+): { displayName: string; reference?: string } {
+  const result = z
+    .object(EntityIdentityShape)
+    .refine(hasDistinctIdentity, {
+      message: "reference must differ from displayName",
+      path: ["reference"],
+    })
+    .parse({ displayName, reference })
+  return result
+}
 
 const KeyValueSchema = z.object({
   label: z.string().min(1).max(120),
@@ -549,6 +597,148 @@ export const PresentViewInputSchema = z.object({
 export type PresentViewInput = z.infer<typeof PresentViewInputSchema>
 
 // ---------------------------------------------------------------------------
+// Semantic entity summaries
+// ---------------------------------------------------------------------------
+
+const SemanticBadgeSchema = BadgeSchema.extend({
+  label: z.string().trim().min(1).max(80),
+})
+
+const SemanticKeyValueSchema = KeyValueSchema.extend({
+  label: z.string().trim().min(1).max(120),
+  value: z.string().trim().min(1).max(600),
+})
+
+const EntitySummaryShape = {
+  entityType: EntityTypeSchema,
+  ...EntityIdentityShape,
+  status: SemanticBadgeSchema.optional(),
+  dates: z.array(DisplayDateSchema).max(8).optional(),
+  amount: z.string().trim().min(1).max(80).optional(),
+  customer: z.string().trim().min(1).max(200).optional(),
+  product: z.string().trim().min(1).max(240).optional(),
+  departure: z.string().trim().min(1).max(240).optional(),
+  travelers: z.string().trim().min(1).max(120).optional(),
+  location: z.string().trim().min(1).max(200).optional(),
+  contact: z.string().trim().min(1).max(320).optional(),
+  capacity: z.string().trim().min(1).max(120).optional(),
+  documentType: z.string().trim().min(1).max(120).optional(),
+  contractType: z.string().trim().min(1).max(120).optional(),
+  facts: z.array(SemanticKeyValueSchema).max(12).optional(),
+  imageUrl: z.string().trim().min(1).max(2000).optional(),
+  actions: z.array(CardActionSchema).max(4).optional(),
+}
+
+/** A compact entity summary used only inside multi-result cards. */
+export const EntitySummarySchema = z
+  .object(EntitySummaryShape)
+  .strict()
+  .refine(hasDistinctIdentity, {
+    message: "reference must differ from displayName",
+    path: ["reference"],
+  })
+export type EntitySummary = z.infer<typeof EntitySummarySchema>
+
+/**
+ * One exact entity. Producers should use this instead of wrapping one item in
+ * collection chrome.
+ */
+export const EntityCardSchema = z
+  .object({
+    kind: z.literal("entity"),
+    ...EntitySummaryShape,
+  })
+  .strict()
+  .refine(hasDistinctIdentity, {
+    message: "reference must differ from displayName",
+    path: ["reference"],
+  })
+export type EntityCard = z.infer<typeof EntityCardSchema>
+
+/** Explicit collection cardinality; an exact one-result response is invalid. */
+export const EntityCollectionStateSchema = z.enum(["empty", "many", "truncated"])
+export type EntityCollectionState = z.infer<typeof EntityCollectionStateSchema>
+
+export const EntityCollectionCardSchema = z
+  .object({
+    kind: z.literal("entityCollection"),
+    entityType: EntityTypeSchema,
+    state: EntityCollectionStateSchema,
+    label: z.string().trim().min(1).max(160),
+    items: z.array(EntitySummarySchema).max(50),
+    /** Known result count. Required only when `state` is `truncated`. */
+    total: z.number().int().nonnegative().optional(),
+    actions: z.array(CardActionSchema).max(4).optional(),
+  })
+  .strict()
+  .superRefine((card, context) => {
+    if (card.items.some((item) => item.entityType !== card.entityType)) {
+      context.addIssue({
+        code: "custom",
+        message: "every item entityType must match the collection entityType",
+        path: ["items"],
+      })
+    }
+
+    if (
+      card.state === "empty" &&
+      (card.items.length !== 0 || (card.total !== undefined && card.total !== 0))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "empty collections must have no items and may only report total 0",
+        path: ["state"],
+      })
+    }
+
+    if (card.state === "many" && card.items.length < 2) {
+      context.addIssue({
+        code: "custom",
+        message: "use an entity card for exactly one result",
+        path: ["items"],
+      })
+    }
+
+    if (
+      card.state === "truncated" &&
+      (card.items.length < 1 || card.total === undefined || card.total <= card.items.length)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "truncated collections require at least one item and a total greater than items.length",
+        path: ["total"],
+      })
+    }
+
+    if (card.state === "many" && card.total !== undefined && card.total !== card.items.length) {
+      context.addIssue({
+        code: "custom",
+        message: "complete collection total must equal items.length",
+        path: ["total"],
+      })
+    }
+  })
+export type EntityCollectionCard = z.infer<typeof EntityCollectionCardSchema>
+
+export const SemanticEntityCardSchema = z.union([EntityCardSchema, EntityCollectionCardSchema])
+export type SemanticEntityCard = z.infer<typeof SemanticEntityCardSchema>
+
+/** Validate a semantic single-entity or collection card. */
+export function parseEntityCard(value: unknown): SemanticEntityCard | null {
+  const result = SemanticEntityCardSchema.safeParse(value)
+  return result.success ? result.data : null
+}
+
+/** Validate and normalize a semantic card at its producer boundary. */
+export function defineEntityCard(card: EntityCard): EntityCard
+export function defineEntityCard(card: EntityCollectionCard): EntityCollectionCard
+export function defineEntityCard(card: SemanticEntityCard): SemanticEntityCard
+export function defineEntityCard(card: SemanticEntityCard): SemanticEntityCard {
+  return SemanticEntityCardSchema.parse(card)
+}
+
+// ---------------------------------------------------------------------------
 // Union + helpers
 // ---------------------------------------------------------------------------
 
@@ -574,6 +764,8 @@ export const AgentCardSchema = z.discriminatedUnion("kind", [
   ItineraryPlanCard,
   AddressCheckCard,
   DynamicCardSchema,
+  EntityCardSchema,
+  EntityCollectionCardSchema,
 ])
 export type AgentCard = z.infer<typeof AgentCardSchema>
 export type AgentCardKind = AgentCard["kind"]
