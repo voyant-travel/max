@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:host-xorigin": "VITE_EMBED_ORIGIN=http://127.0.0.1:48715 vite",
+    "dev:fixture": "vite --config vite.fixture.config.ts",
     "build": "vite build",
     "preview": "vite preview"
   },

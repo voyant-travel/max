@@ -60,9 +60,15 @@ export function useContextChannel({
   const normalizedRef = useRef(normalized)
   normalizedRef.current = normalized
   // The content window we last successfully delivered a context to. Guards
-  // against a double initial delivery (eager signature effect + iframe `load`)
-  // for the same window, while still re-delivering to a *fresh* window on reload.
+  // against a double initial delivery for the same window, while still
+  // re-delivering to a *fresh* window on reload.
   const deliveredTo = useRef<Window | null>(null)
+  // Whether the iframe has loaded at least once. Before first load the content
+  // window is still `about:blank` (the host's own origin), so posting the initial
+  // context there would only trip a cross-origin "target origin does not match"
+  // warning and reach nothing. We defer the *first* delivery to the `load`
+  // handler; only *subsequent* changes post eagerly.
+  const hasLoaded = useRef(false)
 
   function post(payload: Record<string, unknown> & { type: "max:setContext" }) {
     const target = iframeRef.current?.contentWindow
@@ -81,9 +87,12 @@ export function useContextChannel({
   }
 
   // Host → iframe: send whenever the meaningful content changes (deduped by
-  // signature so unrelated re-renders don't spam the iframe).
+  // signature so unrelated re-renders don't spam the iframe). The *first*
+  // delivery is deferred to the `load` handler below — before load there is no
+  // real content window to receive it.
   useEffect(() => {
     if (normalized === undefined) return
+    if (!hasLoaded.current) return
     if (lastSentSig.current === signature) return
     sendContext(normalized)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,6 +107,7 @@ export function useContextChannel({
     const node = iframeRef.current
     if (!node) return
     const onLoad = () => {
+      hasLoaded.current = true
       const cur = normalizedRef.current
       if (cur === undefined) return
       if (deliveredTo.current === node.contentWindow) return
