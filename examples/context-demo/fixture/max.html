@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Max (fixture)</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #ffffff;
+        color: #17170f;
+      }
+      body.dark { background: #0b0b0a; color: #f2f2ee; }
+      header {
+        padding: 10px 14px;
+        border-bottom: 1px solid #ececE4;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      body.dark header { border-color: #23231f; }
+      .spark { color: #ff5100; font-weight: 700; }
+      #ctx-bar {
+        margin: 10px 14px;
+        padding: 10px 12px;
+        border: 1px solid #e4e4dd;
+        border-radius: 10px;
+        background: #faf9f6;
+      }
+      body.dark #ctx-bar { background: #141412; border-color: #23231f; }
+      #ctx-bar[data-status="stale"] { border-color: #d9a441; background: #fff8ea; }
+      .badge {
+        display: inline-block;
+        font-size: 11px;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: #e8f5e9;
+        color: #256029;
+        margin-left: 6px;
+      }
+      .badge.stale { background: #fdecc8; color: #7a5200; }
+      .badge.deleted, .badge.unauthorized, .badge.archived { background: #fde0e0; color: #8a1f1f; }
+      button {
+        font: inherit;
+        cursor: pointer;
+        border: 1px solid #d9d9d0;
+        background: #fff;
+        border-radius: 8px;
+        padding: 5px 10px;
+      }
+      body.dark button { background: #1c1c19; color: #f2f2ee; border-color: #33332d; }
+      .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+      pre {
+        margin: 8px 0 0;
+        padding: 8px;
+        background: #17170f;
+        color: #d7ffd0;
+        border-radius: 8px;
+        font-size: 12px;
+        overflow: auto;
+        max-height: 160px;
+      }
+      main { flex: 1; overflow: auto; padding: 0 14px 14px; }
+      #messages { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      #messages li { background: #f1f1ea; border-radius: 10px; padding: 6px 10px; align-self: flex-start; }
+      body.dark #messages li { background: #1c1c19; }
+      #snapshot {
+        margin-top: 14px; padding: 10px 12px;
+        border: 1px dashed #c9c9bd; border-radius: 10px;
+      }
+      footer { padding: 10px 14px; border-top: 1px solid #ececE4; }
+      body.dark footer { border-color: #23231f; }
+      input { font: inherit; padding: 7px 9px; border-radius: 8px; border: 1px solid #d9d9d0; flex: 1; }
+      .muted { color: #7a7a70; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="spark">✦ Max</span>
+      <span class="muted" id="scope-line"></span>
+      <span style="margin-left:auto" class="row">
+        <button id="req-normal" title="normal">normal</button>
+        <button id="req-wide" title="wide">wide</button>
+        <button id="req-expanded" title="expanded">expand</button>
+        <button id="close-btn" title="close">×</button>
+      </span>
+    </header>
+
+    <div id="ctx-bar" data-status="none">
+      <div class="row">
+        <strong>Active context:</strong>
+        <span id="ctx-summary" class="muted">none</span>
+        <span id="ctx-badge"></span>
+        <span style="margin-left:auto" class="row">
+          <button id="inspect-btn">Inspect</button>
+          <button id="clear-btn">Clear</button>
+        </span>
+      </div>
+      <pre id="ctx-json" hidden></pre>
+      <div class="muted" style="margin-top:6px; font-size:12px">
+        Context updates received: <b id="updates-count">0</b> ·
+        applied layout: <b id="applied-layout">normal</b>
+      </div>
+    </div>
+
+    <main>
+      <ul id="messages"></ul>
+
+      <section id="snapshot">
+        <strong>Historical conversation snapshot</strong>
+        <span id="snapshot-badge" class="badge">active</span>
+        <div class="muted" style="font-size:12px">
+          Pinned when the conversation was created — it retains its own context and
+          never inherits the host's current selection.
+        </div>
+        <div id="snapshot-ctx" style="margin-top:6px"><code></code></div>
+      </section>
+    </main>
+
+    <footer>
+      <form id="chat-form" class="row">
+        <input id="chat-input" placeholder="Type a message (state persists across context/layout changes)…" />
+        <button id="chat-send" type="submit">Send</button>
+      </form>
+    </footer>
+
+    <script>
+      ;(function () {
+        var params = new URLSearchParams(location.search)
+        var scope = {
+          sessionId: params.get("session") || "no-session",
+          tenant: params.get("tenant") || null,
+          audience: params.get("audience") || null,
+        }
+        var theme = params.get("theme")
+        if (theme === "dark") document.body.classList.add("dark")
+
+        // Parent is same-origin in the demo; validate against our own origin.
+        var PARENT_ORIGIN = location.origin
+
+        document.getElementById("scope-line").textContent =
+          "session " + scope.sessionId.slice(0, 8) + "… · tenant " + (scope.tenant || "—")
+
+        // The pinned historical-snapshot context. Deliberately a *different*
+        // entity/version from anything the host will select, so it visibly stays
+        // put (status flips to "stale" once the host has a live context).
+        var SNAPSHOT = { type: "booking", id: "VYT-90001", label: "Booking VYT-90001 (last week)", version: 1 }
+        document.querySelector("#snapshot-ctx code").textContent = SNAPSHOT.type + ":" + SNAPSHOT.id + " — " + SNAPSHOT.label
+
+        var current = undefined // undefined = never set; null = cleared
+        var updates = 0
+
+        function makeId() {
+          return (crypto && crypto.randomUUID ? crypto.randomUUID() : "m" + Math.random().toString(16).slice(2))
+        }
+        function send(type, payload) {
+          var msg = Object.assign(
+            {
+              channel: "max",
+              v: 1,
+              sessionId: scope.sessionId,
+              tenant: scope.tenant,
+              audience: scope.audience,
+              msgId: makeId(),
+              ts: Date.now(),
+              type: type,
+            },
+            payload || {},
+          )
+          parent.postMessage(msg, PARENT_ORIGIN)
+        }
+
+        function sameEntity(a, b) {
+          if (!a || !b) return a === b
+          return a.type === b.type && a.id === b.id && (a.version || null) === (b.version || null)
+        }
+
+        function renderContext() {
+          var bar = document.getElementById("ctx-bar")
+          var summary = document.getElementById("ctx-summary")
+          var badge = document.getElementById("ctx-badge")
+          var json = document.getElementById("ctx-json")
+          if (current) {
+            summary.textContent = current.type + ":" + current.id + " — " + current.label
+            summary.classList.remove("muted")
+            badge.innerHTML = '<span class="badge">active</span>'
+            bar.setAttribute("data-status", "active")
+            json.textContent = JSON.stringify(current, null, 2)
+          } else {
+            summary.textContent = current === null ? "cleared" : "none"
+            summary.classList.add("muted")
+            badge.innerHTML = ""
+            bar.setAttribute("data-status", "none")
+            json.textContent = ""
+          }
+          // Snapshot status is derived, never overwritten: active iff it matches
+          // the live context, else stale.
+          var snapBadge = document.getElementById("snapshot-badge")
+          var stale = !sameEntity(SNAPSHOT, current)
+          snapBadge.textContent = stale ? "stale" : "active"
+          snapBadge.className = "badge" + (stale ? " stale" : "")
+        }
+
+        function setContext(ctx) {
+          current = ctx
+          updates++
+          document.getElementById("updates-count").textContent = String(updates)
+          renderContext()
+        }
+        function applyLayout(layout) {
+          document.getElementById("applied-layout").textContent = layout
+        }
+
+        // Validate + handle messages from the host.
+        window.addEventListener("message", function (event) {
+          if (event.origin !== PARENT_ORIGIN) return
+          if (event.source !== window.parent) return
+          var d = event.data
+          if (!d || typeof d !== "object" || d.channel !== "max") return
+          if (d.v !== 1) return
+          if (d.sessionId !== scope.sessionId) return
+          if (scope.tenant != null && (d.tenant || null) !== scope.tenant) return
+          if (scope.audience != null && (d.audience || null) !== scope.audience) return
+          switch (d.type) {
+            case "max:setContext":
+              setContext(d.context || null)
+              break
+            case "max:setLayout":
+              applyLayout(d.layout)
+              break
+            case "max:setTheme":
+              document.body.classList.toggle("dark", d.theme === "dark")
+              break
+            case "max:setLang":
+              document.documentElement.lang = d.lang || "en"
+              break
+          }
+        })
+
+        document.getElementById("inspect-btn").addEventListener("click", function () {
+          var json = document.getElementById("ctx-json")
+          json.hidden = !json.hidden
+        })
+        document.getElementById("clear-btn").addEventListener("click", function () {
+          send("max:clearContext")
+        })
+        document.getElementById("close-btn").addEventListener("click", function () {
+          send("max:close")
+        })
+        document.getElementById("req-normal").addEventListener("click", function () {
+          send("max:requestLayout", { layout: "normal" })
+        })
+        document.getElementById("req-wide").addEventListener("click", function () {
+          send("max:requestLayout", { layout: "wide" })
+        })
+        document.getElementById("req-expanded").addEventListener("click", function () {
+          send("max:requestLayout", { layout: "expanded" })
+        })
+        document.getElementById("chat-form").addEventListener("submit", function (e) {
+          e.preventDefault()
+          var input = document.getElementById("chat-input")
+          if (!input.value.trim()) return
+          var li = document.createElement("li")
+          li.textContent = input.value
+          document.getElementById("messages").appendChild(li)
+          input.value = ""
+        })
+
+        renderContext()
+        // Announce readiness + ask the host for the current context.
+        send("max:ready")
+        send("max:requestContext")
+      })()
+    </script>
+  </body>
+</html>

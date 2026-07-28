@@ -19,8 +19,18 @@
  *       token: "<embed-jwt>",
  *       theme: "light",   // "light" | "dark" | "system" — disables sniffing
  *       lang: "ro",       // BCP-47 tag — disables sniffing
+ *       tenant: "acme",   // tenant scope enforced on inbound messages
+ *       audience: "desk", // audience/surface scope enforced on inbound messages
  *     })
+ *
+ *     // Typed host-context channel (a discovery hint for Max — see SECURITY):
+ *     Max.setContext({ type: "booking", id: "VYT-10423", label: "Booking VYT-10423" })
+ *     Max.clearContext() // explicit clear
  *   </script>
+ *
+ * SECURITY: the host context is a *discovery hint only*. It never authorises
+ * anything — Max re-verifies identity, auth, approval and consequence-preview
+ * for every action regardless of the supplied context.
  *
  * Tokens are minted server-side by the operator's backend via
  * `POST https://api.voyantjs.com/max/v1/embed/token`. Never bake an embed
@@ -32,10 +42,35 @@
 
   var DEFAULT_ORIGIN = "https://agent-embed.voyant.travel"
   var BUBBLE_W = 420
+  var WIDE_W = 640
   var Z = 2147483600
+  var PROTOCOL_VERSION = 1
   // Panel spans nearly the full viewport height: 16px top margin + 88px below
   // (clears the 56px launcher + gap). Matches the taller Figma panel.
   var PANEL_H = "calc(100vh - 104px)"
+  var ENTITY_TYPES = {
+    product: 1,
+    booking: 1,
+    customer: 1,
+    departure: 1,
+    invoice: 1,
+    contract: 1,
+  }
+  var INBOUND_TYPES = {
+    "max:ready": 1,
+    "max:close": 1,
+    "max:navigate": 1,
+    "max:requestLayout": 1,
+    "max:setLayout": 1,
+    "max:requestContext": 1,
+    "max:clearContext": 1,
+  }
+  var LEGACY_INBOUND = {
+    "max:ready": 1,
+    "max:close": 1,
+    "max:navigate": 1,
+    "max:setLayout": 1,
+  }
 
   var state = {
     token: null,
@@ -47,14 +82,98 @@
     /** When true, theme/lang were not explicitly set and we sniff <html>. */
     autoTheme: false,
     autoLang: false,
+    session: null,
+    tenant: null,
+    audience: null,
+    /** undefined = host supplies no context; null = explicit clear. */
+    context: undefined,
     launcherEl: null,
     panelEl: null,
     backdropEl: null,
+    controlsEl: null,
     iframeEl: null,
     observer: null,
     msgListener: null,
     open: false,
-    expanded: false,
+    layout: "normal",
+    seenIds: {},
+    seenOrder: [],
+  }
+
+  function makeId() {
+    try {
+      if (window.crypto && typeof window.crypto.randomUUID === "function")
+        return window.crypto.randomUUID()
+    } catch (e) {
+      /* fall through */
+    }
+    return "m" + Math.random().toString(16).slice(2) + Date.now().toString(16)
+  }
+
+  // ---- postMessage envelope + inbound validation --------------------------
+
+  function envelope(type, payload) {
+    var msg = {
+      channel: "max",
+      v: PROTOCOL_VERSION,
+      sessionId: state.session,
+      tenant: state.tenant || null,
+      audience: state.audience || null,
+      msgId: makeId(),
+      ts: Date.now(),
+      type: type,
+    }
+    if (payload)
+      for (var k in payload) if (Object.prototype.hasOwnProperty.call(payload, k)) msg[k] = payload[k]
+    return msg
+  }
+
+  // Bounded replay guard: reject duplicate msgIds and stale timestamps.
+  function replayAccept(msgId, ts) {
+    if (typeof msgId !== "string" || !msgId) return false
+    if (typeof ts !== "number") return false
+    if (Math.abs(Date.now() - ts) > 30000) return false
+    if (state.seenIds[msgId]) return false
+    state.seenIds[msgId] = 1
+    state.seenOrder.push(msgId)
+    if (state.seenOrder.length > 256) delete state.seenIds[state.seenOrder.shift()]
+    return true
+  }
+
+  // Validate an inbound message. Returns the message object or null.
+  // Strict: exact origin, source === our iframe, session/tenant/audience scope.
+  function validateInbound(event) {
+    if (event.origin !== state.origin) return null
+    if (!state.iframeEl || event.source !== state.iframeEl.contentWindow) return null
+    var d = event.data
+    if (!d || typeof d !== "object") return null
+    var type = d.type
+    if (typeof type !== "string" || !INBOUND_TYPES[type]) return null
+    if (d.channel !== "max") {
+      // Legacy un-enveloped control messages, gated by origin+source only.
+      return LEGACY_INBOUND[type] ? d : null
+    }
+    if (d.v !== PROTOCOL_VERSION) return null
+    if (d.sessionId !== state.session) return null
+    if (state.tenant != null && (d.tenant || null) !== state.tenant) return null
+    if (state.audience != null && (d.audience || null) !== state.audience) return null
+    if (!replayAccept(d.msgId, d.ts)) return null
+    return d
+  }
+
+  function normalizeContext(input) {
+    if (!input || typeof input !== "object") return null
+    if (!ENTITY_TYPES[input.type]) return null
+    var id = typeof input.id === "string" ? input.id.trim() : ""
+    if (!id) return null
+    var out = { type: input.type, id: id }
+    out.label =
+      typeof input.label === "string" && input.label.trim() ? input.label.trim() : id
+    if (typeof input.route === "string" && input.route) out.route = input.route
+    if (typeof input.subView === "string" && input.subView) out.subView = input.subView
+    if (typeof input.version === "number" && isFinite(input.version)) out.version = input.version
+    if (typeof input.capturedAt === "string" && input.capturedAt) out.capturedAt = input.capturedAt
+    return out
   }
 
   function detectHostTheme() {
@@ -91,11 +210,19 @@
     }
   }
 
+  function sendContext(ctx) {
+    postToIframe(envelope("max:setContext", { context: ctx }))
+    state.context = ctx
+  }
+
   function srcFor(path) {
     var u = state.origin.replace(/\/$/, "") + path
     var qs = "token=" + encodeURIComponent(state.token || "")
     if (state.theme) qs += "&theme=" + encodeURIComponent(state.theme)
     if (state.lang) qs += "&lang=" + encodeURIComponent(state.lang)
+    qs += "&session=" + encodeURIComponent(state.session)
+    if (state.tenant) qs += "&tenant=" + encodeURIComponent(state.tenant)
+    if (state.audience) qs += "&audience=" + encodeURIComponent(state.audience)
     return u + "?" + qs
   }
 
@@ -231,6 +358,79 @@
     return b
   }
 
+  // Host-rendered layout controls (wide / expand / restore) overlaid on the
+  // panel — the iframe can't resize the host-owned panel, so the host owns them.
+  function ensureControls(panel) {
+    if (state.controlsEl) return state.controlsEl
+    var wrap = document.createElement("div")
+    wrap.style.cssText = [
+      "position:absolute",
+      "top:8px",
+      "right:8px",
+      "display:flex",
+      "gap:6px",
+      "z-index:3",
+    ].join(";")
+    function mkBtn(label, svg, onClick) {
+      var b = document.createElement("button")
+      b.type = "button"
+      b.setAttribute("aria-label", label)
+      b.style.cssText = [
+        "width:26px",
+        "height:26px",
+        "display:grid",
+        "place-items:center",
+        "border:0",
+        "border-radius:8px",
+        "background:rgba(15,16,13,0.55)",
+        "color:#fff",
+        "cursor:pointer",
+        "-webkit-backdrop-filter:blur(6px)",
+        "backdrop-filter:blur(6px)",
+      ].join(";")
+      b.innerHTML = svg
+      b.addEventListener("click", onClick)
+      return b
+    }
+    var wideSvg =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7 4 12l4 5M16 7l4 5-4 5"/></svg>'
+    var expandSvg =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>'
+    var restoreSvg =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v6H3M21 15h-6v6M4 20l6-6M20 4l-6 6"/></svg>'
+    var wideBtn = mkBtn("Widen Max panel", wideSvg, function () {
+      applyLayout(state.layout === "wide" ? "normal" : "wide")
+    })
+    var expandBtn = mkBtn("Expand Max to full page", expandSvg, function () {
+      applyLayout(state.layout === "expanded" ? "normal" : "expanded")
+    })
+    wrap.appendChild(wideBtn)
+    wrap.appendChild(expandBtn)
+    panel.appendChild(wrap)
+    state.controlsEl = wrap
+    state.controlsWideBtn = wideBtn
+    state.controlsExpandBtn = expandBtn
+    syncControls()
+    return wrap
+  }
+
+  function syncControls() {
+    if (!state.controlsEl) return
+    var expanded = state.layout === "expanded"
+    state.controlsWideBtn.style.display = expanded ? "none" : "grid"
+    state.controlsWideBtn.setAttribute(
+      "aria-label",
+      state.layout === "wide" ? "Narrow Max panel" : "Widen Max panel",
+    )
+    state.controlsExpandBtn.setAttribute(
+      "aria-label",
+      expanded ? "Restore Max panel" : "Expand Max to full page",
+    )
+    state.controlsExpandBtn.innerHTML = expanded
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v6H3M21 15h-6v6M4 20l6-6M20 4l-6 6"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>'
+  }
+
   function ensurePanel() {
     if (state.panelEl) return state.panelEl
     ensureStyles()
@@ -239,7 +439,7 @@
       "position:fixed",
       "right:20px",
       "bottom:88px",
-      "width:" + BUBBLE_W + "px",
+      "width:min(" + BUBBLE_W + "px, calc(100vw - 40px))",
       "height:" + PANEL_H,
       "max-width:calc(100vw - 40px)",
       "border-radius:16px",
@@ -263,8 +463,11 @@
       setTimeout(function () {
         loader.style.display = "none"
       }, 260)
+      // Re-push the current context to a fresh content window.
+      if (state.context !== undefined) sendContext(state.context)
     })
     document.body.appendChild(panel)
+    ensureControls(panel)
     state.panelEl = panel
     return panel
   }
@@ -294,24 +497,26 @@
         p.style.display = "none"
         if (b) b.style.display = "none"
         // Reset to docked while hidden so the next open isn't stuck expanded.
-        if (state.expanded) applyExpanded(false)
+        if (state.layout !== "normal") applyLayout("normal")
       }
     }, 300)
     state.open = false
   }
 
-  // Latched full-screen: the embedded app requests it on a canvas workflow.
-  // Grows the docked panel into a centred near-fullscreen overlay (capped on
-  // wide screens) and keeps it there until collapse/close — never auto-reverts.
-  function applyExpanded(expanded) {
-    state.expanded = expanded
+  // Responsive layout: normal (~420px docked), wide (~640px docked), expanded
+  // (centred near-fullscreen, capped on wide screens). All widths are clamped to
+  // the viewport. `expanded` is latched — it never auto-reverts.
+  function applyLayout(layout) {
+    if (layout !== "normal" && layout !== "wide" && layout !== "expanded") return
+    var changed = state.layout !== layout
+    state.layout = layout
     var p = state.panelEl
     if (!p) return
     p.style.transition =
       "opacity 200ms ease,transform 300ms cubic-bezier(0.16,1,0.3,1)," +
       "right 280ms ease,left 280ms ease,top 280ms ease,bottom 280ms ease," +
       "width 280ms ease,height 280ms ease,border-radius 280ms ease"
-    if (expanded) {
+    if (layout === "expanded") {
       p.style.right = "max(16px, calc(50vw - 640px))"
       p.style.left = "max(16px, calc(50vw - 640px))"
       p.style.top = "16px"
@@ -321,35 +526,44 @@
       p.style.maxWidth = "none"
       p.style.transformOrigin = "50% 50%"
     } else {
+      var w = layout === "wide" ? WIDE_W : BUBBLE_W
       p.style.right = "20px"
       p.style.left = ""
       p.style.top = ""
       p.style.bottom = "88px"
-      p.style.width = BUBBLE_W + "px"
+      p.style.width = "min(" + w + "px, calc(100vw - 40px))"
       p.style.height = PANEL_H
       p.style.maxWidth = "calc(100vw - 40px)"
       p.style.transformOrigin = "100% 100%"
     }
+    syncControls()
+    // Echo the applied layout back to the iframe (host↔iframe round trip).
+    postToIframe(envelope("max:setLayout", { layout: layout }))
+    if (changed && typeof state.onLayoutChange === "function") state.onLayoutChange(layout)
   }
 
-  // Messages FROM the iframe (embed origin only): the in-iframe Close button and
-  // canvas-driven layout changes.
+  // Messages FROM the iframe (embed origin + our iframe only): Close, canvas-
+  // driven layout changes, and context requests/clears.
   function installIframeMessageListener() {
     if (state.msgListener) window.removeEventListener("message", state.msgListener)
     state.msgListener = function (event) {
-      if (event.origin !== state.origin) return
-      var data = event.data
-      if (!data || typeof data !== "object") return
+      var data = validateInbound(event)
+      if (!data) return
       if (data.type === "max:close") {
-        applyExpanded(false)
+        if (state.layout !== "normal") applyLayout("normal")
         closePanel()
-      } else if (data.type === "max:setLayout") {
-        if (data.layout === "expanded") {
+      } else if (data.type === "max:requestLayout" || data.type === "max:setLayout") {
+        if (data.layout === "expanded" || data.layout === "wide") {
           openPanel()
-          applyExpanded(true)
+          applyLayout(data.layout)
         } else if (data.layout === "normal") {
-          applyExpanded(false)
+          applyLayout("normal")
         }
+      } else if (data.type === "max:requestContext") {
+        if (state.context !== undefined) sendContext(state.context)
+      } else if (data.type === "max:clearContext") {
+        if (typeof state.onContextClear === "function") state.onContextClear()
+        sendContext(null)
       }
     }
     window.addEventListener("message", state.msgListener)
@@ -357,9 +571,7 @@
 
   function mountInline() {
     var host =
-      typeof state.target === "string"
-        ? document.querySelector(state.target)
-        : state.target
+      typeof state.target === "string" ? document.querySelector(state.target) : state.target
     if (!host) {
       console.error("[Max] inline mode requires a valid `target` element or selector")
       return
@@ -369,6 +581,9 @@
     host.style.position = host.style.position || "relative"
     state.iframeEl = makeIframe(srcFor("/max"))
     state.iframeEl.style.minHeight = "480px"
+    state.iframeEl.addEventListener("load", function () {
+      if (state.context !== undefined) sendContext(state.context)
+    })
     host.appendChild(state.iframeEl)
   }
 
@@ -385,13 +600,18 @@
     state.mode = opts.mode === "inline" ? "inline" : "bubble"
     state.origin = (opts.embedOrigin || DEFAULT_ORIGIN).replace(/\/$/, "")
     state.target = opts.target || null
+    state.session = makeId()
+    state.tenant = typeof opts.tenant === "string" && opts.tenant ? opts.tenant : null
+    state.audience = typeof opts.audience === "string" && opts.audience ? opts.audience : null
+    state.onContextClear = typeof opts.onContextClear === "function" ? opts.onContextClear : null
+    state.onLayoutChange = typeof opts.onLayoutChange === "function" ? opts.onLayoutChange : null
+    if (opts.context !== undefined) state.context = normalizeContext(opts.context)
 
     var explicitTheme =
       opts.theme === "light" || opts.theme === "dark" || opts.theme === "system"
         ? opts.theme
         : null
-    var explicitLang =
-      typeof opts.lang === "string" && opts.lang.length > 0 ? opts.lang : null
+    var explicitLang = typeof opts.lang === "string" && opts.lang.length > 0 ? opts.lang : null
     state.autoTheme = explicitTheme === null
     state.autoLang = explicitLang === null
     state.theme = explicitTheme || detectHostTheme()
@@ -401,6 +621,7 @@
       whenReady(function () {
         mountInline()
         installHostObserver()
+        installIframeMessageListener()
       })
     } else {
       whenReady(function () {
@@ -425,14 +646,14 @@
         var next = detectHostTheme()
         if (next !== state.theme) {
           state.theme = next
-          postToIframe({ type: "max:setTheme", theme: next })
+          postToIframe(envelope("max:setTheme", { theme: next }))
         }
       }
       if (state.autoLang) {
         var nextLang = detectHostLang()
         if (nextLang !== state.lang) {
           state.lang = nextLang
-          postToIframe({ type: "max:setLang", lang: nextLang || "" })
+          postToIframe(envelope("max:setLang", { lang: nextLang || "" }))
         }
       }
     })
@@ -452,6 +673,29 @@
     closePanel()
   }
 
+  // Public context API. `setContext(null)` / `clearContext()` are explicit
+  // clears — Max never silently drops a context.
+  function setContext(ctx) {
+    var norm = ctx == null ? null : normalizeContext(ctx)
+    if (ctx != null && norm == null) {
+      console.error("[Max] setContext: invalid context (unknown entity type or missing id)")
+      return
+    }
+    sendContext(norm)
+  }
+
+  function clearContext() {
+    sendContext(null)
+  }
+
+  function setLayout(layout) {
+    if (state.mode !== "bubble") return
+    whenReady(function () {
+      if (layout === "expanded" || layout === "wide") openPanel()
+      applyLayout(layout)
+    })
+  }
+
   function destroy() {
     if (state.observer) state.observer.disconnect()
     if (state.msgListener) window.removeEventListener("message", state.msgListener)
@@ -461,11 +705,12 @@
     state.launcherEl = null
     state.panelEl = null
     state.backdropEl = null
+    state.controlsEl = null
     state.iframeEl = null
     state.observer = null
     state.msgListener = null
     state.open = false
-    state.expanded = false
+    state.layout = "normal"
   }
 
   function whenReady(fn) {
@@ -481,6 +726,9 @@
     init: init,
     open: open,
     close: close,
+    setContext: setContext,
+    clearContext: clearContext,
+    setLayout: setLayout,
     destroy: destroy,
   }
 })()
