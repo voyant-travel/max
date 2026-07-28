@@ -120,7 +120,7 @@ describe("useContextChannel via MaxChat", () => {
     expect(next.targetOrigins.at(-1)).toBe(OTHER_ORIGIN)
   })
 
-  it("does not publish scope from a suspended concurrent render", () => {
+  it("does not publish scope from a suspended concurrent render", async () => {
     const never = new Promise<void>(() => {})
     function BlockedRender({ blocked }: { blocked: boolean }) {
       if (blocked) throw never
@@ -168,6 +168,21 @@ describe("useContextChannel via MaxChat", () => {
       tenant: "tenant-a",
     })
     expect(current.targetOrigins.at(-1)).toBe(ORIGIN)
+
+    current.posts.length = 0
+    current.targetOrigins.length = 0
+    act(() => {
+      document.documentElement.className = "dark"
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(current.posts.filter((p) => p.type === "max:setTheme").at(-1)).toMatchObject({
+      channel: "max",
+      sessionId: current.sessionId,
+      tenant: "tenant-a",
+      theme: "dark",
+    })
+    expect(current.targetOrigins.at(-1)).toBe(ORIGIN)
+    document.documentElement.className = ""
   })
 
   it.each([
@@ -400,13 +415,27 @@ describe("useHostSync origin transitions", () => {
 
     act(() => rerender(<MaxChat token="t" embedOrigin={`${OTHER_ORIGIN}/`} context={product} />))
     const next = harness(container)
+    const nextSession = new URL(next.iframe.src).searchParams.get("session") as string
     act(() => next.iframe.dispatchEvent(new Event("load")))
     expect(next.posts).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "max:setTheme", theme: "light" }),
-        expect.objectContaining({ type: "max:setLang", lang: "en" }),
+        expect.objectContaining({
+          channel: "max",
+          v: 1,
+          sessionId: nextSession,
+          type: "max:setTheme",
+          theme: "light",
+        }),
+        expect.objectContaining({
+          channel: "max",
+          v: 1,
+          sessionId: nextSession,
+          type: "max:setLang",
+          lang: "en",
+        }),
       ]),
     )
+    expect(next.targetOrigins).toEqual(next.targetOrigins.map(() => OTHER_ORIGIN))
     next.posts.length = 0
 
     act(() => {
@@ -417,10 +446,21 @@ describe("useHostSync origin transitions", () => {
 
     expect(next.posts).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "max:setTheme", theme: "dark" }),
-        expect.objectContaining({ type: "max:setLang", lang: "fr" }),
+        expect.objectContaining({
+          channel: "max",
+          sessionId: nextSession,
+          type: "max:setTheme",
+          theme: "dark",
+        }),
+        expect.objectContaining({
+          channel: "max",
+          sessionId: nextSession,
+          type: "max:setLang",
+          lang: "fr",
+        }),
       ]),
     )
+    expect(next.targetOrigins).toEqual(next.targetOrigins.map(() => OTHER_ORIGIN))
     expect(first.posts).toHaveLength(0)
 
     document.documentElement.className = ""

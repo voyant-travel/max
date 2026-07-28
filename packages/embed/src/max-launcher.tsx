@@ -209,7 +209,7 @@ export function MaxLauncher({
     return `${origin}/max/bubble?${params.toString()}`
   }, [token, origin, sessionId, tenant, audience])
 
-  useHostSync({ iframeRef, origin, theme, lang, mounted })
+  useHostSync({ iframeRef, origin, scope, theme, lang, mounted })
   useContextChannel({
     iframeRef,
     origin,

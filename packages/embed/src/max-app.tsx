@@ -68,7 +68,7 @@ export function MaxApp({
     return `${origin}/max/app${path}?${params.toString()}`
   }, [token, origin, initialAppPath, sessionId, tenant, audience])
 
-  useHostSync({ iframeRef, origin, theme, lang })
+  useHostSync({ iframeRef, origin, scope, theme, lang })
   useRouteSync({ iframeRef, origin, scope, basePath, ready: frameReady, onRouteChange })
   useContextChannel({ iframeRef, origin, scope, context, onContextClear, onContextRequest })
 

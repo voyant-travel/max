@@ -61,7 +61,7 @@ export function MaxChat({
     return `${origin}/max?${params.toString()}`
   }, [token, origin, sessionId, tenant, audience])
 
-  useHostSync({ iframeRef, origin, theme, lang })
+  useHostSync({ iframeRef, origin, scope, theme, lang })
   useContextChannel({ iframeRef, origin, scope, context, onContextClear, onContextRequest })
 
   return (
