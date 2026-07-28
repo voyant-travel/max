@@ -1,5 +1,7 @@
 import { type RefObject, useEffect, useRef } from "react"
 
+import { createEnvelope, type MaxSessionScope, ReplayGuard, validateInbound } from "./protocol.js"
+
 /**
  * Two-way route sync between the embedder page and the fullscreen Max iframe.
  *
@@ -22,14 +24,18 @@ import { type RefObject, useEffect, useRef } from "react"
 export function useRouteSync({
   iframeRef,
   origin,
+  scope,
   basePath,
   onRouteChange,
 }: {
   iframeRef: RefObject<HTMLIFrameElement | null>
   origin: string
+  scope: MaxSessionScope
   basePath: string
   onRouteChange?: (path: string) => void
 }) {
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
   // The app-relative path most recently replayed *into* the iframe from a
   // popstate. While the iframe settles on it we suppress the history echo.
   const replayedToIframe = useRef<string | null>(null)
@@ -39,29 +45,36 @@ export function useRouteSync({
   onRouteChangeRef.current = onRouteChange
 
   useEffect(() => {
+    const guard = new ReplayGuard()
+
     function post(path: string) {
       const target = iframeRef.current?.contentWindow
       if (!target) return
       try {
-        target.postMessage({ type: "max:setRoute", path }, origin)
+        target.postMessage(createEnvelope(scopeRef.current, "max:setRoute", { path }), origin)
       } catch {
         /* iframe might have navigated */
       }
     }
 
     function handleMessage(event: MessageEvent) {
-      if (event.origin !== origin) return
-      const data = event.data as { type?: string; path?: string } | null
-      if (!data) return
+      const result = validateInbound(event, {
+        expectedOrigin: origin,
+        expectedSource: iframeRef.current?.contentWindow,
+        scope: scopeRef.current,
+        replay: guard,
+      })
+      if (!result.ok) return
+      const { message } = result
 
-      if (data.type === "max:ready") {
+      if (message.type === "max:ready") {
         // The iframe booted with the deep-linked path already in its `src`, so
         // nothing to replay here; this hook is ready for its navigations.
         return
       }
 
-      if (data.type === "max:navigate" && typeof data.path === "string") {
-        const appPath = data.path
+      if (message.type === "max:navigate" && typeof message.path === "string") {
+        const appPath = message.path
         if (replayedToIframe.current === appPath) {
           // We caused this navigation via popstate — don't push history again.
           replayedToIframe.current = null

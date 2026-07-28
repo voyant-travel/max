@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from "react"
 
 import { LoadingOverlay, resolveDark } from "./loading.js"
+import { createSessionId } from "./protocol.js"
 import { DEFAULT_EMBED_ORIGIN, type MaxAppProps } from "./types.js"
+import { useContextChannel } from "./use-context-channel.js"
 import { readInitialHostSnapshot, useHostSync } from "./use-host-sync.js"
 import { hostPathToAppPath, useRouteSync } from "./use-route-sync.js"
 
@@ -30,11 +32,21 @@ export function MaxApp({
   style,
   onLoad,
   onRouteChange,
+  context,
+  tenant,
+  audience,
+  onContextClear,
+  onContextRequest,
 }: MaxAppProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const [loaded, setLoaded] = useState(false)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
   const dark = useMemo(() => resolveDark({ theme, lang }), [theme, lang])
+  const [sessionId] = useState(createSessionId)
+  const scope = useMemo(
+    () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
+    [sessionId, tenant, audience],
+  )
 
   // Boot the iframe straight at the deep-linked path so a refreshed
   // `basePath/c/<id>` mounts the right conversation with no extra round-trip.
@@ -46,12 +58,16 @@ export function MaxApp({
     const params = new URLSearchParams({ token })
     if (snapshot.theme) params.set("theme", snapshot.theme)
     if (snapshot.lang) params.set("lang", snapshot.lang)
+    params.set("session", sessionId)
+    if (tenant) params.set("tenant", tenant)
+    if (audience) params.set("audience", audience)
     const path = initialAppPath === "/" ? "" : initialAppPath
     return `${origin}/max/app${path}?${params.toString()}`
-  }, [token, origin, initialAppPath])
+  }, [token, origin, initialAppPath, sessionId, tenant, audience])
 
   useHostSync({ iframeRef, origin, theme, lang })
-  useRouteSync({ iframeRef, origin, basePath, onRouteChange })
+  useRouteSync({ iframeRef, origin, scope, basePath, onRouteChange })
+  useContextChannel({ iframeRef, origin, scope, context, onContextClear, onContextRequest })
 
   return (
     <div
