@@ -87,23 +87,29 @@ export function MaxLauncher({
     }
   }
 
-  // Single entry point for layout changes: updates state, notifies the host, and
-  // echoes the applied layout back to the iframe (the host↔iframe round trip).
-  // `wide`/`expanded` also ensure the panel is mounted + open so a request from
-  // the embedded app can't land on a closed panel.
+  // Single entry point for layout changes: updates state and echoes the applied
+  // layout back to the iframe (the host↔iframe round trip). `wide`/`expanded`
+  // also ensure the panel is mounted + open so a request from the embedded app
+  // can't land on a closed panel. `onLayoutChange` fires from an effect (below)
+  // rather than here, so we never call a parent setState during render.
   function applyLayout(next: MaxLayout, opts: { echo?: boolean; ensureOpen?: boolean } = {}) {
     const { echo = true, ensureOpen = false } = opts
-    setLayout((prev) => {
-      if (prev === next) return prev
-      onLayoutChangeRef.current?.(next)
-      return next
-    })
+    setLayout(next)
     if (ensureOpen || next !== "normal") {
       setMounted(true)
       setOpen(true)
     }
     if (echo) postToIframe("max:setLayout", { layout: next })
   }
+
+  // Notify the host of layout changes from an effect — skips the initial render
+  // (no spurious call for `defaultLayout`) and stays out of the render phase.
+  const notifiedLayout = useRef(layout)
+  useEffect(() => {
+    if (notifiedLayout.current === layout) return
+    notifiedLayout.current = layout
+    onLayoutChangeRef.current?.(layout)
+  }, [layout])
 
   // Drive the enter/exit animation off `open`.
   useEffect(() => {
@@ -154,7 +160,10 @@ export function MaxLauncher({
         setOpen(false)
         applyLayout("normal", { echo: false }) // collapse on close; reopen docked
       } else if (message.type === "max:requestLayout" || message.type === "max:setLayout") {
-        if (message.layout) applyLayout(message.layout, { echo: false })
+        // Echo the applied layout back so the iframe learns the resolved state
+        // (completes the host↔iframe round trip). No loop: the iframe treats the
+        // echoed `max:setLayout` as display-only and doesn't respond.
+        if (message.layout) applyLayout(message.layout)
       }
     }
     window.addEventListener("message", onMessage)

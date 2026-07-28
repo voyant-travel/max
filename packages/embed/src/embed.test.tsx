@@ -209,9 +209,13 @@ describe("MaxLauncher — layout round trips & controls", () => {
     const { container } = render(
       <MaxLauncher token="t" embedOrigin={ORIGIN} defaultOpen onLayoutChange={onLayoutChange} />,
     )
-    const { cw, sessionId } = harness(container)
+    const { cw, posts, sessionId } = harness(container)
     postFromIframe(cw, sessionId, "max:requestLayout", { layout: "wide" })
     expect(onLayoutChange).toHaveBeenCalledWith("wide")
+    // The host echoes the applied layout back to the iframe (round trip).
+    expect(posts.filter((p) => p.type === "max:setLayout").at(-1)).toMatchObject({
+      layout: "wide",
+    })
   })
 
   it("honours a legacy (un-enveloped) max:setLayout for backwards compatibility", () => {
