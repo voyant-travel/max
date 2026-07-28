@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef } from "react"
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react"
 
 import { type MaxHostContext, normalizeHostContext } from "./context.js"
 import { createEnvelope, type MaxSessionScope, ReplayGuard, validateInbound } from "./protocol.js"
@@ -57,29 +57,33 @@ export function useContextChannel({
   const scopeGeneration = `${origin}\u0000${scope.sessionId}\u0000${scope.tenant ?? ""}\u0000${scope.audience ?? ""}`
   const activeGeneration = useRef(scopeGeneration)
   const originRef = useRef(origin)
-  originRef.current = origin
   const scopeRef = useRef(scope)
-  scopeRef.current = scope
   const clearRef = useRef(onContextClear)
-  clearRef.current = onContextClear
   const requestRef = useRef(onContextRequest)
-  requestRef.current = onContextRequest
   const normalizedRef = useRef(normalized)
-  normalizedRef.current = normalized
   // Whether the iframe has loaded at least once. Before first load the content
   // window is still `about:blank` (the host's own origin), so posting the initial
   // context there would only trip a cross-origin "target origin does not match"
   // warning and reach nothing. We defer the *first* delivery to the `load`
   // handler; only *subsequent* changes post eagerly.
   const hasLoaded = useRef(false)
-  // Credentials/scope changes navigate the iframe to a new document. Reset
-  // synchronously during render so the context-change effect cannot send the
-  // new scope/context into the previous document before that navigation loads.
-  if (activeGeneration.current !== scopeGeneration) {
-    activeGeneration.current = scopeGeneration
-    hasLoaded.current = false
-    lastSentSig.current = undefined
-  }
+  // Publish security-sensitive handoff state only after React commits this
+  // render. Writing these refs during render lets an interrupted Suspense or
+  // concurrent render expose an uncommitted origin/scope to the still-live old
+  // iframe. Layout effects run synchronously with the DOM commit, before a
+  // browser load event can observe the replacement document.
+  useLayoutEffect(() => {
+    originRef.current = origin
+    scopeRef.current = scope
+    clearRef.current = onContextClear
+    requestRef.current = onContextRequest
+    normalizedRef.current = normalized
+    if (activeGeneration.current !== scopeGeneration) {
+      activeGeneration.current = scopeGeneration
+      hasLoaded.current = false
+      lastSentSig.current = undefined
+    }
+  })
 
   function post(payload: Record<string, unknown> & { type: "max:setContext" }) {
     const target = iframeRef.current?.contentWindow
@@ -119,7 +123,7 @@ export function useContextChannel({
   // loads without also starving a freshly navigated document. This is what
   // makes the initial context arrive *without* the iframe having to send
   // `max:requestContext`.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = iframeRef.current
     if (!node) return
     const onLoad = () => {
@@ -134,7 +138,7 @@ export function useContextChannel({
     node.addEventListener("load", onLoad)
     return () => node.removeEventListener("load", onLoad)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted])
+  }, [iframeRef, mounted])
 
   // iframe → host: requestContext / clearContext.
   useEffect(() => {

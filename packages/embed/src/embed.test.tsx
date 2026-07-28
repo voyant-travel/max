@@ -1,4 +1,4 @@
-import { act } from "react"
+import { act, Suspense, startTransition } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { MaxHostContext } from "./context.js"
@@ -99,41 +99,75 @@ describe("useContextChannel via MaxChat", () => {
   })
 
   it("handles a replacement load with the stable listener and current scope", () => {
-    const loadListeners: EventListener[] = []
-    const originalAdd = HTMLIFrameElement.prototype.addEventListener
-    const addSpy = vi
-      .spyOn(HTMLIFrameElement.prototype, "addEventListener")
-      .mockImplementation(function (this: HTMLIFrameElement, type, listener, options) {
-        if (type === "load") loadListeners.push(listener as EventListener)
-        return originalAdd.call(this, type, listener, options)
-      })
+    const { container, rerender } = render(
+      <MaxChat token="a" embedOrigin={ORIGIN} tenant="tenant-a" context={product} />,
+    )
+    const first = harness(container)
+    act(() => first.iframe.dispatchEvent(new Event("load")))
 
-    try {
-      const { container, rerender } = render(
-        <MaxChat token="a" embedOrigin={ORIGIN} tenant="tenant-a" context={product} />,
-      )
-      harness(container)
-      expect(loadListeners.length).toBeGreaterThan(0)
-      const stableOnLoad = loadListeners.at(-1) as EventListener
+    act(() => {
+      rerender(<MaxChat token="b" embedOrigin={OTHER_ORIGIN} tenant="tenant-b" context={product} />)
+    })
+    const next = harness(container)
 
-      act(() => {
-        rerender(
-          <MaxChat token="b" embedOrigin={OTHER_ORIGIN} tenant="tenant-b" context={product} />,
-        )
-      })
-      const next = harness(container)
-      next.posts.length = 0
-      next.targetOrigins.length = 0
+    // The replacement document gets exactly its one real load event; the
+    // stable callback must already see the just-committed scope and origin.
+    act(() => next.iframe.dispatchEvent(new Event("load")))
+    expect(next.posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
+      sessionId: new URL(next.iframe.src).searchParams.get("session"),
+      tenant: "tenant-b",
+    })
+    expect(next.targetOrigins.at(-1)).toBe(OTHER_ORIGIN)
+  })
 
-      act(() => stableOnLoad.call(next.iframe, new Event("load")))
-      expect(next.posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
-        sessionId: new URL(next.iframe.src).searchParams.get("session"),
-        tenant: "tenant-b",
-      })
-      expect(next.targetOrigins.at(-1)).toBe(OTHER_ORIGIN)
-    } finally {
-      addSpy.mockRestore()
+  it("does not publish scope from a suspended concurrent render", () => {
+    const never = new Promise<void>(() => {})
+    function BlockedRender({ blocked }: { blocked: boolean }) {
+      if (blocked) throw never
+      return null
     }
+    function ConcurrentHost({
+      blocked,
+      token,
+      embedOrigin,
+      tenant,
+    }: {
+      blocked: boolean
+      token: string
+      embedOrigin: string
+      tenant: string
+    }) {
+      return (
+        <Suspense fallback={null}>
+          <MaxChat token={token} embedOrigin={embedOrigin} tenant={tenant} context={product} />
+          <BlockedRender blocked={blocked} />
+        </Suspense>
+      )
+    }
+
+    const { container, rerender } = render(
+      <ConcurrentHost blocked={false} token="a" embedOrigin={ORIGIN} tenant="tenant-a" />,
+    )
+    const current = harness(container)
+    act(() => current.iframe.dispatchEvent(new Event("load")))
+    current.posts.length = 0
+    current.targetOrigins.length = 0
+
+    act(() => {
+      startTransition(() => {
+        rerender(<ConcurrentHost blocked token="b" embedOrigin={OTHER_ORIGIN} tenant="tenant-b" />)
+      })
+    })
+
+    // The transition has not committed, so a load from the still-live iframe
+    // must continue using the committed A scope rather than render-attempt B.
+    expect(container.querySelector("iframe")).toBe(current.iframe)
+    act(() => current.iframe.dispatchEvent(new Event("load")))
+    expect(current.posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
+      sessionId: current.sessionId,
+      tenant: "tenant-a",
+    })
+    expect(current.targetOrigins.at(-1)).toBe(ORIGIN)
   })
 
   it.each([
