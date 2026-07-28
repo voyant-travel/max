@@ -40,7 +40,7 @@ export function MaxChat({
   const [loaded, setLoaded] = useState(false)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
   const dark = useMemo(() => resolveDark({ theme, lang }), [theme, lang])
-  const sessionId = useMemo(createSessionId, [token, tenant, audience])
+  const sessionId = useMemo(createSessionId, [token, tenant, audience, origin])
   useEffect(() => setLoaded(false), [sessionId])
   const scope = useMemo(
     () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),

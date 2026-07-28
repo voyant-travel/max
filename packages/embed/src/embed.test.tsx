@@ -9,6 +9,7 @@ import { cleanup, render } from "./test-utils.js"
 import type { MaxAppProps, MaxChatProps, MaxLauncherProps } from "./types.js"
 
 const ORIGIN = "https://embed.example"
+const OTHER_ORIGIN = "https://embed-b.example"
 
 const product: MaxHostContext = {
   type: "product",
@@ -92,6 +93,37 @@ describe("useContextChannel via MaxChat", () => {
     expect(next.posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
       sessionId: nextSession,
       tenant: "tenant-b",
+    })
+  })
+
+  it.each([
+    ["MaxChat", (props: Record<string, unknown>) => <MaxChat {...(props as MaxChatProps)} />],
+    ["MaxApp", (props: Record<string, unknown>) => <MaxApp {...(props as MaxAppProps)} />],
+    [
+      "MaxLauncher",
+      (props: Record<string, unknown>) => (
+        <MaxLauncher defaultOpen {...(props as MaxLauncherProps)} />
+      ),
+    ],
+  ])("%s treats a normalized embedOrigin change as a fresh security boundary", (_, View) => {
+    const common = { token: "t", context: product, tenant: "tenant-a" }
+    const { container, rerender } = render(View({ ...common, embedOrigin: `${ORIGIN}/` }))
+    const first = harness(container)
+    act(() => first.iframe.dispatchEvent(new Event("load")))
+
+    act(() => rerender(View({ ...common, embedOrigin: `${OTHER_ORIGIN}/` })))
+    const next = harness(container)
+    const nextUrl = new URL(next.iframe.src)
+    const nextSession = nextUrl.searchParams.get("session") as string
+
+    expect(nextUrl.origin).toBe(OTHER_ORIGIN)
+    expect(nextSession).not.toBe(first.sessionId)
+    expect(next.posts.filter((p) => p.type === "max:setContext")).toHaveLength(0)
+
+    act(() => next.iframe.dispatchEvent(new Event("load")))
+    expect(next.posts.filter((p) => p.type === "max:setContext").at(-1)).toMatchObject({
+      sessionId: nextSession,
+      tenant: "tenant-a",
     })
   })
 

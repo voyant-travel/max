@@ -54,7 +54,7 @@ export function useContextChannel({
   // Signature of the last context we actually sent — dedupes re-renders that
   // don't change the meaningful content.
   const lastSentSig = useRef<string | undefined>(undefined)
-  const scopeGeneration = `${scope.sessionId}\u0000${scope.tenant ?? ""}\u0000${scope.audience ?? ""}`
+  const scopeGeneration = `${origin}\u0000${scope.sessionId}\u0000${scope.tenant ?? ""}\u0000${scope.audience ?? ""}`
   const activeGeneration = useRef(scopeGeneration)
   const scopeRef = useRef(scope)
   scopeRef.current = scope

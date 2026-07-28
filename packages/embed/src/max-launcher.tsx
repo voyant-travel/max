@@ -67,7 +67,7 @@ export function MaxLauncher({
   // The element focus should return to when the modal (expanded) panel closes.
   const restoreFocusRef = useRef<HTMLElement | null>(null)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
-  const sessionId = useMemo(createSessionId, [token, tenant, audience])
+  const sessionId = useMemo(createSessionId, [token, tenant, audience, origin])
   useEffect(() => setLoaded(false), [sessionId])
   const scope = useMemo(
     () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
