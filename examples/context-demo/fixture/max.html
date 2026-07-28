@@ -130,7 +130,7 @@
     </footer>
 
     <script>
-      ;(function () {
+      ;(() => {
         var params = new URLSearchParams(location.search)
         var scope = {
           sessionId: params.get("session") || "no-session",
@@ -152,7 +152,7 @@
         var SNAPSHOT = { type: "booking", id: "VYT-90001", label: "Booking VYT-90001 (last week)", version: 1 }
         document.querySelector("#snapshot-ctx code").textContent = SNAPSHOT.type + ":" + SNAPSHOT.id + " — " + SNAPSHOT.label
 
-        var current = undefined // undefined = never set; null = cleared
+        var current // undefined = never set; null = cleared
         var updates = 0
 
         function makeId() {
@@ -217,7 +217,7 @@
         }
 
         // Validate + handle messages from the host.
-        window.addEventListener("message", function (event) {
+        window.addEventListener("message", (event) => {
           if (event.origin !== PARENT_ORIGIN) return
           if (event.source !== window.parent) return
           var d = event.data
@@ -242,26 +242,26 @@
           }
         })
 
-        document.getElementById("inspect-btn").addEventListener("click", function () {
+        document.getElementById("inspect-btn").addEventListener("click", () => {
           var json = document.getElementById("ctx-json")
           json.hidden = !json.hidden
         })
-        document.getElementById("clear-btn").addEventListener("click", function () {
+        document.getElementById("clear-btn").addEventListener("click", () => {
           send("max:clearContext")
         })
-        document.getElementById("close-btn").addEventListener("click", function () {
+        document.getElementById("close-btn").addEventListener("click", () => {
           send("max:close")
         })
-        document.getElementById("req-normal").addEventListener("click", function () {
+        document.getElementById("req-normal").addEventListener("click", () => {
           send("max:requestLayout", { layout: "normal" })
         })
-        document.getElementById("req-wide").addEventListener("click", function () {
+        document.getElementById("req-wide").addEventListener("click", () => {
           send("max:requestLayout", { layout: "wide" })
         })
-        document.getElementById("req-expanded").addEventListener("click", function () {
+        document.getElementById("req-expanded").addEventListener("click", () => {
           send("max:requestLayout", { layout: "expanded" })
         })
-        document.getElementById("chat-form").addEventListener("submit", function (e) {
+        document.getElementById("chat-form").addEventListener("submit", (e) => {
           e.preventDefault()
           var input = document.getElementById("chat-input")
           if (!input.value.trim()) return

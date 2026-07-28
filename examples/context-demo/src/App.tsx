@@ -1,5 +1,5 @@
-import { type MaxHostContext, MaxChat, MaxLauncher } from "@voyant-travel/max-embed"
-import { useState } from "react"
+import { MaxChat, type MaxHostContext, MaxLauncher } from "@voyant-travel/max-embed"
+import { type CSSProperties, useState } from "react"
 
 // A local, workspace-linked embed origin — Vite serves the Max *fixture* iframe
 // for `/max*` (see vite.config.ts). In production this is agent-embed.voyant.travel.
@@ -49,7 +49,10 @@ export function App() {
 
   const pushLog = (line: string) =>
     setLog((l) =>
-      [{ id: (l[0]?.id ?? 0) + 1, line: `${new Date().toISOString().slice(11, 19)}  ${line}` }, ...l].slice(0, 12),
+      [
+        { id: (l[0]?.id ?? 0) + 1, line: `${new Date().toISOString().slice(11, 19)}  ${line}` },
+        ...l,
+      ].slice(0, 12),
     )
 
   const select = (c: MaxHostContext) => {
@@ -101,7 +104,14 @@ export function App() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }}>
         <section>
           <h2 style={h2}>Inline &lt;MaxChat&gt;</h2>
-          <div style={{ height: 460, border: "1px solid #e4e4dd", borderRadius: 14, overflow: "hidden" }}>
+          <div
+            style={{
+              height: 460,
+              border: "1px solid #e4e4dd",
+              borderRadius: 14,
+              overflow: "hidden",
+            }}
+          >
             <MaxChat
               token={DEMO_TOKEN}
               embedOrigin={EMBED_ORIGIN}
@@ -118,7 +128,18 @@ export function App() {
 
         <section>
           <h2 style={h2}>Event log</h2>
-          <ol data-testid="host-log" style={{ ...card, minHeight: 460, margin: 0, listStyle: "none", padding: 12, fontFamily: "monospace", fontSize: 12 }}>
+          <ol
+            data-testid="host-log"
+            style={{
+              ...card,
+              minHeight: 460,
+              margin: 0,
+              listStyle: "none",
+              padding: 12,
+              fontFamily: "monospace",
+              fontSize: 12,
+            }}
+          >
             {log.map((l) => (
               <li key={l.id}>{l.line}</li>
             ))}
@@ -142,14 +163,19 @@ export function App() {
   )
 }
 
-const card: React.CSSProperties = {
+const card: CSSProperties = {
   background: "#fff",
   border: "1px solid #e4e4dd",
   borderRadius: 12,
   padding: "10px 14px",
 }
-const h2: React.CSSProperties = { fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5, color: "#5b5b52" }
-const btn = (active: boolean): React.CSSProperties => ({
+const h2: CSSProperties = {
+  fontSize: 14,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+  color: "#5b5b52",
+}
+const btn = (active: boolean): CSSProperties => ({
   padding: "8px 12px",
   borderRadius: 9,
   border: active ? "2px solid #ff5100" : "1px solid #d9d9d0",
