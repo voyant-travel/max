@@ -271,7 +271,11 @@ export class MaxContextReceiver {
 
     const current = this.snap.context
     if (isSameReceiverRevision(context, current)) {
-      // Same revision → idempotent no-op (keep whatever verified status we hold).
+      // Same revision → idempotent no-op (keep whatever verified status we
+      // hold), but it is still a fresh host assertion. Advance the fallback
+      // ordering watermark so an older, delayed unversioned selection cannot
+      // overwrite the context after a request/replay round trip.
+      this.lastContextTs = Math.max(this.lastContextTs ?? ts, ts)
       return { ok: true, snapshot: this.snap, changed: false, idempotent: true }
     }
     if (isContextOutOfOrder(context, current)) {

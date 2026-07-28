@@ -212,6 +212,19 @@ describe("MaxContextReceiver — clear / ordering / idempotence", () => {
     expect((r.snapshot().context as MaxHostContext).label).toBe("Booking VYT-10423")
   })
 
+  it("advances ordering after an idempotent context resend", async () => {
+    const r = makeReceiver()
+    await r.ingest(ev(booking, { ts: NOW - 20_000 }))
+    await r.ingest(ev({ ...booking, label: "same rev" }, { ts: NOW }))
+
+    const delayed = await r.ingest(
+      ev({ type: "customer", id: "C-older", label: "Delayed customer" }, { ts: NOW - 10_000 }),
+    )
+
+    expect(delayed).toMatchObject({ ok: false, reason: "out-of-order" })
+    expect(r.snapshot().context).toMatchObject({ id: booking.id })
+  })
+
   it("orders different entities by capturedAt", async () => {
     const r = makeReceiver()
     const early: MaxHostContext = {
