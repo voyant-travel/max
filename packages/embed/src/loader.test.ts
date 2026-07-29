@@ -105,6 +105,14 @@ beforeEach(() => {
   document.documentElement.removeAttribute("lang")
 })
 
+describe("loader host bootstrap", () => {
+  it("includes the host origin before mounting the iframe", () => {
+    const { iframe } = boot()
+
+    expect(new URL(iframe.src).searchParams.get("hostOrigin")).toBe(window.location.origin)
+  })
+})
+
 afterEach(() => {
   const w = window as unknown as Win
   try {

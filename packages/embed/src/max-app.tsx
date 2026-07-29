@@ -40,12 +40,14 @@ export function MaxApp({
 }: MaxAppProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [hostOrigin, setHostOrigin] = useState<string | null>(null)
   const origin = useMemo(() => embedOrigin.replace(/\/$/, ""), [embedOrigin])
   const dark = useMemo(() => resolveDark({ theme, lang }), [theme, lang])
   const sessionId = useMemo(createSessionId, [token, tenant, audience, origin])
   const loadedSessionRef = useRef<string | null>(null)
   const frameReady = loadedSessionRef.current === sessionId
   useEffect(() => setLoaded(false), [sessionId])
+  useEffect(() => setHostOrigin(window.location.origin), [])
   const scope = useMemo(
     () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
     [sessionId, tenant, audience],
@@ -59,6 +61,7 @@ export function MaxApp({
   const src = useMemo(() => {
     const snapshot = readInitialHostSnapshot({ theme, lang })
     const params = new URLSearchParams({ token })
+    if (hostOrigin) params.set("hostOrigin", hostOrigin)
     if (snapshot.theme) params.set("theme", snapshot.theme)
     if (snapshot.lang) params.set("lang", snapshot.lang)
     params.set("session", sessionId)
@@ -66,36 +69,53 @@ export function MaxApp({
     if (audience) params.set("audience", audience)
     const path = initialAppPath === "/" ? "" : initialAppPath
     return `${origin}/max/app${path}?${params.toString()}`
-  }, [token, origin, initialAppPath, sessionId, tenant, audience])
+  }, [token, origin, hostOrigin, initialAppPath, sessionId, tenant, audience])
 
-  useHostSync({ iframeRef, origin, scope, theme, lang })
+  useHostSync({
+    iframeRef,
+    origin,
+    scope,
+    theme,
+    lang,
+    mounted: hostOrigin !== null,
+  })
   useRouteSync({ iframeRef, origin, scope, basePath, ready: frameReady, onRouteChange })
-  useContextChannel({ iframeRef, origin, scope, context, onContextClear, onContextRequest })
+  useContextChannel({
+    iframeRef,
+    origin,
+    scope,
+    context,
+    mounted: hostOrigin !== null,
+    onContextClear,
+    onContextRequest,
+  })
 
   return (
     <div
       className={className}
       style={{ position: "relative", width: "100%", height: "100%", ...style }}
     >
-      <iframe
-        ref={iframeRef}
-        src={src}
-        title={title}
-        allow="clipboard-read; clipboard-write"
-        onLoad={() => {
-          loadedSessionRef.current = sessionId
-          setLoaded(true)
-          onLoad?.()
-        }}
-        style={{
-          display: "block",
-          width: "100%",
-          height: "100%",
-          border: 0,
-          background: "transparent",
-          colorScheme: "normal",
-        }}
-      />
+      {hostOrigin !== null && (
+        <iframe
+          ref={iframeRef}
+          src={src}
+          title={title}
+          allow="clipboard-read; clipboard-write"
+          onLoad={() => {
+            loadedSessionRef.current = sessionId
+            setLoaded(true)
+            onLoad?.()
+          }}
+          style={{
+            display: "block",
+            width: "100%",
+            height: "100%",
+            border: 0,
+            background: "transparent",
+            colorScheme: "normal",
+          }}
+        />
+      )}
       <LoadingOverlay show={!loaded} dark={dark} />
     </div>
   )

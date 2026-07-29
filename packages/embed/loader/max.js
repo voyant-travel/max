@@ -262,6 +262,7 @@
   function srcFor(path) {
     var u = state.origin.replace(/\/$/, "") + path
     var qs = "token=" + encodeURIComponent(state.token || "")
+    qs += "&hostOrigin=" + encodeURIComponent(window.location.origin)
     if (state.theme) qs += "&theme=" + encodeURIComponent(state.theme)
     if (state.lang) qs += "&lang=" + encodeURIComponent(state.lang)
     qs += "&session=" + encodeURIComponent(state.session)

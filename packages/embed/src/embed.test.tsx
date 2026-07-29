@@ -20,6 +20,19 @@ const product: MaxHostContext = {
 
 afterEach(cleanup)
 
+describe("trusted host bootstrap", () => {
+  it.each([
+    ["MaxChat", () => <MaxChat token="t" embedOrigin={ORIGIN} />],
+    ["MaxApp", () => <MaxApp token="t" embedOrigin={ORIGIN} />],
+    ["MaxLauncher", () => <MaxLauncher token="t" embedOrigin={ORIGIN} defaultOpen />],
+  ])("%s includes the host origin before mounting its iframe", (_, View) => {
+    const { container } = render(<View />)
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement
+
+    expect(new URL(iframe.src).searchParams.get("hostOrigin")).toBe(window.location.origin)
+  })
+})
+
 /** Grab the iframe and spy on posts to its contentWindow. Returns the sessionId
  *  the component put in the src so tests can echo a valid envelope back. */
 function harness(container: HTMLElement) {
