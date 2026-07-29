@@ -62,6 +62,7 @@ export function MaxLauncher({
   const [visible, setVisible] = useState(defaultOpen)
   const [entered, setEntered] = useState(defaultOpen)
   const [loaded, setLoaded] = useState(false)
+  const [hostOrigin, setHostOrigin] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
   // The element focus should return to when the modal (expanded) panel closes.
@@ -71,6 +72,7 @@ export function MaxLauncher({
   const loadedSessionRef = useRef<string | null>(null)
   const frameReady = loadedSessionRef.current === sessionId
   useEffect(() => setLoaded(false), [sessionId])
+  useEffect(() => setHostOrigin(window.location.origin), [])
   const scope = useMemo(
     () => ({ sessionId, tenant: tenant ?? null, audience: audience ?? null }),
     [sessionId, tenant, audience],
@@ -201,21 +203,29 @@ export function MaxLauncher({
   const src = useMemo(() => {
     const snapshot = readInitialHostSnapshot({ theme, lang })
     const params = new URLSearchParams({ token })
+    if (hostOrigin) params.set("hostOrigin", hostOrigin)
     if (snapshot.theme) params.set("theme", snapshot.theme)
     if (snapshot.lang) params.set("lang", snapshot.lang)
     params.set("session", sessionId)
     if (tenant) params.set("tenant", tenant)
     if (audience) params.set("audience", audience)
     return `${origin}/max/bubble?${params.toString()}`
-  }, [token, origin, sessionId, tenant, audience])
+  }, [token, origin, hostOrigin, sessionId, tenant, audience])
 
-  useHostSync({ iframeRef, origin, scope, theme, lang, mounted })
+  useHostSync({
+    iframeRef,
+    origin,
+    scope,
+    theme,
+    lang,
+    mounted: mounted && hostOrigin !== null,
+  })
   useContextChannel({
     iframeRef,
     origin,
     scope,
     context,
-    mounted,
+    mounted: mounted && hostOrigin !== null,
     onContextClear,
     onContextRequest,
   })
@@ -304,7 +314,7 @@ export function MaxLauncher({
             "opacity 200ms ease, transform 300ms cubic-bezier(0.16,1,0.3,1), right 280ms ease, left 280ms ease, top 280ms ease, bottom 280ms ease, width 280ms ease, height 280ms ease, border-radius 280ms ease",
         }}
       >
-        {mounted && (
+        {mounted && hostOrigin !== null && (
           <iframe
             ref={iframeRef}
             src={src}
